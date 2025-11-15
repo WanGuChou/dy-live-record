@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>URL & Request Monitor</title>
+  <title>CDP Network & WebSocket Monitor</title>
   <style>
     * {
       margin: 0;
@@ -12,7 +12,7 @@
     }
 
     body {
-      width: 450px;
+      width: 480px;
       padding: 20px;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -27,8 +27,8 @@
     }
 
     h1 {
-      font-size: 22px;
-      margin-bottom: 8px;
+      font-size: 20px;
+      margin-bottom: 4px;
       color: #667eea;
       display: flex;
       align-items: center;
@@ -36,9 +36,20 @@
     }
 
     .subtitle {
-      font-size: 13px;
+      font-size: 12px;
       color: #666;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
+    }
+
+    .version {
+      display: inline-block;
+      background: #667eea;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: bold;
+      margin-bottom: 12px;
     }
 
     .status {
@@ -48,7 +59,7 @@
       padding: 12px;
       background: #f8f9fa;
       border-radius: 8px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
     .status-label {
@@ -80,15 +91,41 @@
       50% { opacity: 0.5; }
     }
 
-    .form-group {
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
       margin-bottom: 16px;
+    }
+
+    .stat-item {
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 6px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #667eea;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
     }
 
     label {
       display: block;
       margin-bottom: 6px;
       font-weight: 500;
-      font-size: 14px;
+      font-size: 13px;
       color: #555;
     }
 
@@ -97,7 +134,7 @@
       padding: 10px 12px;
       border: 2px solid #e0e0e0;
       border-radius: 6px;
-      font-size: 14px;
+      font-size: 13px;
       transition: border-color 0.3s;
     }
 
@@ -120,7 +157,7 @@
       padding: 12px;
       background: #f8f9fa;
       border-radius: 8px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
     .switch-label {
@@ -183,7 +220,7 @@
       padding: 12px;
       border: none;
       border-radius: 6px;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.3s;
@@ -209,10 +246,10 @@
     }
 
     .message {
-      margin-top: 16px;
+      margin-top: 14px;
       padding: 10px;
       border-radius: 6px;
-      font-size: 13px;
+      font-size: 12px;
       display: none;
     }
 
@@ -229,42 +266,74 @@
     }
 
     .info-box {
-      margin-top: 16px;
+      margin-top: 14px;
       padding: 12px;
       background: #e7f3ff;
       border-left: 4px solid #667eea;
       border-radius: 4px;
-      font-size: 12px;
+      font-size: 11px;
       color: #555;
       line-height: 1.6;
+    }
+
+    .warning-box {
+      margin-top: 14px;
+      padding: 12px;
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #856404;
+      line-height: 1.6;
+    }
+
+    .feature-list {
+      margin-top: 8px;
+      padding-left: 16px;
+    }
+
+    .feature-list li {
+      margin-bottom: 4px;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>
-      <span>🔍</span>
-      URL & Request Monitor
+      <span>🔬</span>
+      CDP Monitor
     </h1>
-    <p class="subtitle">监控URL和所有网络请求</p>
+    <p class="subtitle">Chrome DevTools Protocol 深度监控</p>
+    <span class="version">v2.0.0</span>
 
     <div class="status">
-      <span class="status-label">连接状态</span>
+      <span class="status-label">服务器状态</span>
       <div class="status-indicator">
         <span class="status-dot" id="statusDot"></span>
         <span id="statusText">未连接</span>
       </div>
     </div>
 
+    <div class="stats">
+      <div class="stat-item">
+        <div class="stat-value" id="activeTabsCount">0</div>
+        <div class="stat-label">活跃标签页</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="activeWebSocketsCount">0</div>
+        <div class="stat-label">WebSocket连接</div>
+      </div>
+    </div>
+
     <div class="form-group">
-      <label for="serverUrl">WebSocket 服务器地址</label>
+      <label for="serverUrl">服务器地址</label>
       <input type="text" id="serverUrl" placeholder="ws://localhost:8080/monitor">
     </div>
 
     <div class="form-group">
-      <label for="filterKeywords">过滤关键字（可选，逗号分隔）</label>
-      <input type="text" id="filterKeywords" placeholder="例如: live,video,stream">
-      <small>只发送包含关键字的请求。留空则发送所有请求。</small>
+      <label for="filterKeywords">过滤关键字（可选）</label>
+      <input type="text" id="filterKeywords" placeholder="例如: live,video,websocket">
+      <small>逗号分隔，留空则监控所有请求</small>
     </div>
 
     <div class="switch-container">
@@ -283,10 +352,19 @@
     <div class="message" id="message"></div>
 
     <div class="info-box">
-      💡 提示：<br>
-      • 插件将监控所有URL和网络请求<br>
-      • 设置过滤关键字可减少发送的数据量<br>
-      • 所有请求都会打印到控制台日志
+      <strong>✨ CDP 监控功能：</strong>
+      <ul class="feature-list">
+        <li>✅ 所有 HTTP/HTTPS 请求</li>
+        <li>✅ WebSocket 连接创建</li>
+        <li>✅ WebSocket 握手过程</li>
+        <li>✅ WebSocket 发送/接收的所有消息</li>
+        <li>✅ 请求和响应的完整头部</li>
+        <li>✅ POST 数据和响应内容</li>
+      </ul>
+    </div>
+
+    <div class="warning-box">
+      ⚠️ <strong>注意：</strong>启用监控后，浏览器会显示"正在调试此浏览器"提示。这是正常现象，因为插件使用了Chrome DevTools Protocol。
     </div>
   </div>
 

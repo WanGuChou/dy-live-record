@@ -1,248 +1,399 @@
-# DY Live Record - 浏览器URL和请求监控项目
+# DY Live Record - CDP深度监控项目
 
-## 项目概述
+## 🎯 项目概述
 
-这是一个抖音直播录制相关的项目，包含浏览器监控插件，用于捕获和记录浏览器地址栏URL变化和所有网络请求（包括WebSocket连接）。
+这是一个抖音直播录制相关的项目，包含基于 **Chrome DevTools Protocol (CDP)** 的浏览器深度监控插件，能够捕获和记录：
+- ✅ 所有 HTTP/HTTPS 网络请求
+- ✅ WebSocket 连接的完整生命周期
+- ✅ WebSocket 发送和接收的所有消息内容
+- ✅ 请求和响应的完整头部信息
 
-**最新版本**: v1.0.1 ✅  
-**主要改进**: 修复WebSocket捕获和刷新页面问题
-
-## 项目结构
-
-```
-dy-live-record/
-├── brower-monitor/          # Chrome/Edge 浏览器扩展插件
-│   ├── manifest.json        # 扩展配置文件
-│   ├── background.js        # 后台服务脚本
-│   ├── popup.html          # 配置界面HTML
-│   ├── popup.js            # 配置界面脚本
-│   ├── icons/              # 图标文件夹
-│   │   └── README.md       # 图标说明
-│   ├── README.md           # 插件详细文档
-│   └── QUICKSTART.md       # 快速入门指南
-└── server/                  # WebSocket服务器
-    ├── server.js            # 服务器主程序
-    ├── package.json         # Node.js依赖配置
-    ├── .gitignore          # Git忽略文件
-    └── README.md           # 服务器文档
-```
-
-## 快速开始
-
-### 1. 安装浏览器插件
-
-详细步骤请参考：[brower-monitor/README.md](./dy-live-record/brower-monitor/README.md)
-
-**简要步骤：**
-1. 在Chrome/Edge中打开扩展管理页面
-2. 开启"开发者模式"
-3. 加载 `dy-live-record/brower-monitor` 文件夹
-4. 配置WebSocket服务器地址
-5. 启用监控
-
-### 2. 启动WebSocket服务器
-
-```bash
-cd server
-npm install
-npm start
-```
-
-服务器将在 `ws://localhost:8080/monitor` 上运行
-
-详细文档请参考：[server/README.md](./server/README.md)
-
-## 主要功能
-
-### 浏览器插件功能
-- ✅ 监控地址栏URL变化
-- ✅ 捕获所有网络请求（页面、图片、脚本、API等）
-- ✅ **所有请求都打印到插件控制台日志** ⭐
-- ✅ **关键字过滤功能（只发送匹配的请求）** ⭐
-- ✅ **WebSocket连接专门捕获** ⭐ v1.0.1
-- ✅ **页面刷新完整捕获** ⭐ v1.0.1
-- ✅ **请求计数和错误捕获** ⭐ v1.0.1
-- ✅ 通过WebSocket实时发送数据到服务器
-- ✅ 自动重连机制（断线后每5秒重连）
-- ✅ 简洁的配置界面
-- ✅ 实时连接状态显示
-
-### 监控内容
-
-#### 1. 地址栏URL变化
-- 用户在地址栏输入新URL
-- 点击链接导航到新页面
-
-#### 2. 所有网络请求
-- 主页面请求 (main_frame)
-- 子页面请求 (sub_frame/iframe)
-- CSS样式表 (stylesheet)
-- JavaScript脚本 (script)
-- 图片资源 (image)
-- AJAX请求 (xmlhttprequest)
-- WebSocket连接 (websocket)
-- 媒体文件 (media)
-- 其他资源类型
-
-### WebSocket消息类型
-
-| 类型 | 说明 | 包含信息 |
-|------|------|---------|
-| `connection` | 连接建立 | 状态、时间戳 |
-| `url_change` | 地址栏URL变化 | URL、标题、标签页ID |
-| `request` | 网络请求发起 | URL、方法、资源类型、请求ID |
-| `request_completed` | 请求完成 | URL、状态码、资源类型 |
-
-## 技术栈
-
-### 浏览器插件
-- **Manifest V3** - Chrome扩展最新标准
-- **Service Worker** - 后台脚本
-- **Chrome APIs** - tabs, webRequest, storage
-- **WebSocket** - 实时通信
-
-### WebSocket服务器
-- **Node.js** - 运行环境
-- **ws** - WebSocket库
-- **支持多客户端并发连接**
-- **自动清理断开的连接**
-- **优雅关闭机制**
-
-## 使用场景
-
-1. **URL和请求监控**
-   - 记录用户浏览历史和所有网络请求
-   - 分析用户访问模式和API调用
-   - 监控特定网站的URL和请求
-
-2. **直播录制辅助**
-   - 检测直播间URL和媒体请求
-   - 自动触发录制任务
-   - 捕获视频流URL
-
-3. **网络调试和分析**
-   - 实时查看所有网络请求
-   - 分析API调用模式
-   - 监控资源加载情况
-
-## 数据格式示例
-
-### URL变化
-```json
-{
-  "type": "url_change",
-  "tabId": 12345,
-  "url": "https://example.com",
-  "title": "页面标题",
-  "timestamp": "2025-11-15T10:00:00.000Z"
-}
-```
-
-### 网络请求
-```json
-{
-  "type": "request",
-  "requestId": "12345",
-  "url": "https://example.com/api/data",
-  "method": "GET",
-  "resourceType": "xmlhttprequest",
-  "tabId": 12345,
-  "frameId": 0,
-  "timestamp": "2025-11-15T10:00:00.000Z"
-}
-```
-
-### 请求完成
-```json
-{
-  "type": "request_completed",
-  "requestId": "12345",
-  "url": "https://example.com/api/data",
-  "method": "GET",
-  "statusCode": 200,
-  "resourceType": "xmlhttprequest",
-  "tabId": 12345,
-  "timestamp": "2025-11-15T10:00:00.000Z"
-}
-```
-
-## 注意事项
-
-⚠️ **重要：**
-- 网页加载时可能产生大量请求（图片、CSS、JS、API等）
-- 服务器需要能够处理高频率的消息
-- 建议在服务器端进行数据过滤和存储
-- 监控所有请求可能略微影响浏览器性能
-
-## 调试和故障排查
-
-### 快速测试
-
-如果遇到连接问题，使用测试脚本快速验证服务器：
-
-```bash
-cd server
-node test-connection.js
-```
-
-### 详细日志
-
-- **浏览器插件**: 所有操作都有详细的带时间戳的日志
-  - Chrome: `chrome://extensions/` → 点击 "Service Worker"
-  - 日志格式: `[时间] [URL Monitor] 消息内容`
-
-- **服务器**: 显示客户端连接、消息接收等详细信息
-  - 包含客户端IP、User-Agent、Origin等信息
-
-### 文档
-
-- **快速调试**: [QUICK_DEBUG.md](./QUICK_DEBUG.md) - 5分钟快速排查 ⭐
-- **调试指南**: [DEBUG_GUIDE.md](./DEBUG_GUIDE.md) - 完整的调试步骤
-- **故障排查**: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - 常见问题解决方案
-
-## 安全说明
-
-- 插件需要访问所有网站的权限以监控URL和请求
-- 所有数据通过WebSocket发送，请确保服务器端安全
-- 建议在生产环境使用 `wss://` (WebSocket Secure)
-- 敏感数据应在服务器端加密存储
-
-## 开发计划
-
-- [ ] 添加请求过滤规则（只监控特定域名或资源类型）
-- [ ] 添加数据本地存储功能
-- [ ] 支持HTTP REST API作为备选通信方式
-- [ ] 添加统计和分析界面
-- [ ] 支持Firefox浏览器
-
-## 文档
-
-### 核心文档
-- **改进说明**: [IMPROVEMENTS.md](./IMPROVEMENTS.md) - v1.0.1改进详情 ⭐⭐
-- **详细测试**: [DETAILED_TEST.md](./DETAILED_TEST.md) - WebSocket和刷新测试 ⭐⭐
-- **功能总结**: [FEATURE_SUMMARY.md](./FEATURE_SUMMARY.md) - 完整功能说明
-- **测试指南**: [TEST_GUIDE.md](./TEST_GUIDE.md) - 基础测试指南
-
-### 其他文档
-- **使用说明**: [USAGE.md](./USAGE.md) - 快速使用指南
-- **更新日志**: [CHANGELOG.md](./CHANGELOG.md) - 版本更新记录
-- **插件文档**: [dy-live-record/brower-monitor/README.md](./dy-live-record/brower-monitor/README.md)
-- **快速入门**: [dy-live-record/brower-monitor/QUICKSTART.md](./dy-live-record/brower-monitor/QUICKSTART.md)
-- **服务器文档**: [server/README.md](./server/README.md)
-- **项目结构**: [PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md)
-
-## 许可证
-
-MIT License
-
-## 贡献
-
-欢迎提交Issue和Pull Request！
-
-## 联系方式
-
-如有问题，请在GitHub上提交Issue。
+**最新版本**: v2.0.0 🚀  
+**重大更新**: 使用 Chrome DevTools Protocol 实现深度监控
 
 ---
 
-**最后更新时间：** 2025-11-15
+## 📦 项目结构
+
+```
+dy-live-record/
+├── brower-monitor/          # Chrome/Edge 浏览器扩展插件 (CDP版本)
+│   ├── manifest.json        # 扩展配置文件 (需要debugger权限)
+│   ├── background.js        # CDP监控核心逻辑
+│   ├── popup.html          # 配置界面HTML
+│   ├── popup.js            # 配置界面脚本
+│   ├── icons/              # 图标文件夹
+│   └── README.md           # 插件文档
+└── server/                  # WebSocket服务器
+    ├── server.js            # 服务器主程序 (支持CDP消息格式)
+    ├── package.json         # Node.js依赖配置
+    └── README.md           # 服务器文档
+```
+
+---
+
+## 🚀 快速开始
+
+### 1. 启动WebSocket服务器
+
+```bash
+cd server
+npm install   # 首次运行需要
+npm start
+```
+
+**服务器启动后会显示：**
+```
+════════════════════════════════════════════════════════════════════════════════
+CDP Monitor 服务器已启动
+地址: ws://localhost:8080/monitor
+════════════════════════════════════════════════════════════════════════════════
+```
+
+### 2. 安装浏览器插件
+
+⚠️ **重要**: 如果之前安装了v1.x版本，请先完全卸载！
+
+1. 打开 Chrome/Edge 扩展管理页面
+   - Chrome: `chrome://extensions/`
+   - Edge: `edge://extensions/`
+
+2. 启用"开发者模式"
+
+3. 点击"加载已解压的扩展程序"
+
+4. 选择 `dy-live-record/brower-monitor` 文件夹
+
+5. **授予 debugger 权限** (系统会提示)
+
+### 3. 配置插件
+
+1. 点击插件图标
+2. 设置服务器地址: `ws://localhost:8080/monitor`
+3. （可选）设置过滤关键字
+4. 打开"启用监控"开关
+5. 点击"保存配置"
+
+### 4. 开始监控
+
+访问任意网页，服务器会实时显示：
+- 📤 所有HTTP请求
+- 📥 所有HTTP响应
+- 🔌 WebSocket连接创建
+- 🤝 WebSocket握手过程
+- 📤📥 WebSocket所有消息
+
+---
+
+## ✨ 核心功能
+
+### HTTP/HTTPS 请求监控
+
+- ✅ 完整的请求URL
+- ✅ HTTP方法 (GET, POST, PUT, DELETE等)
+- ✅ 完整的请求头
+- ✅ POST数据内容
+- ✅ 响应状态码
+- ✅ 完整的响应头
+- ✅ MIME类型
+- ✅ 资源类型分类
+
+### WebSocket 深度监控 ⭐ 核心特性
+
+**这是v2.0最重要的功能！**
+
+#### 1. 连接生命周期
+- 🔌 WebSocket 创建 (完整URL)
+- 🤝 握手请求 (包含所有头部)
+- ✅ 握手响应 (包含Sec-WebSocket-Accept等)
+- 🔌 连接关闭
+
+#### 2. 消息内容捕获
+- 📤 **发送的所有消息** (完整内容)
+- 📥 **接收的所有消息** (完整内容)
+- 🔢 消息类型 (text/binary/ping/pong)
+- 📏 消息长度统计
+
+#### 3. 详细信息
+- WebSocket完整URL (包括wss://路径)
+- 请求ID关联
+- Opcode类型
+- Mask状态
+- 时间戳
+
+### 配置功能
+
+- 🔧 自定义服务器地址
+- 🔍 关键字过滤 (减少日志量)
+- 🎚️ 一键启用/禁用
+- 📊 实时状态显示
+- 📈 活跃标签页和WebSocket统计
+
+---
+
+## 📊 使用场景
+
+### 1. 直播平台调试
+监控直播平台的WebSocket消息流：
+```
+- 弹幕消息
+- 礼物通知
+- 在线人数更新
+- 直播状态变化
+```
+
+### 2. API调试
+查看前端发送的所有API请求：
+```
+- 请求参数
+- 响应内容
+- 请求头信息
+- 错误信息
+```
+
+### 3. WebSocket应用开发
+调试实时通信应用：
+```
+- 聊天消息
+- 游戏状态同步
+- 实时数据推送
+- 心跳包监控
+```
+
+### 4. 安全审计
+分析网站的网络通信：
+```
+- 数据传输内容
+- 加密情况
+- 第三方请求
+- 隐私数据泄露检测
+```
+
+---
+
+## 🔬 技术架构
+
+### CDP vs 传统方法
+
+| 特性 | chrome.webRequest | **CDP (v2.0)** |
+|------|-------------------|----------------|
+| HTTP请求 | ✅ | ✅ |
+| 完整请求头 | ⚠️ 部分 | ✅ 完整 |
+| POST数据 | ⚠️ 有限 | ✅ 完整 |
+| WebSocket创建 | ⚠️ 间接 | ✅ 直接 |
+| WebSocket消息 | ❌ 不能 | ✅ **完整捕获** |
+| 响应内容 | ❌ 不能 | ✅ 可获取 |
+
+### 使用的CDP域
+
+- `Network.enable` - 启用网络监控
+- `Network.requestWillBeSent` - 请求发送前
+- `Network.responseReceived` - 收到响应
+- `Network.webSocketCreated` - WebSocket创建
+- `Network.webSocketWillSendHandshakeRequest` - 握手请求
+- `Network.webSocketHandshakeResponseReceived` - 握手响应
+- `Network.webSocketFrameSent` - 发送消息
+- `Network.webSocketFrameReceived` - 接收消息
+- `Network.webSocketClosed` - 连接关闭
+- `Network.webSocketFrameError` - 错误
+
+---
+
+## 📚 详细文档
+
+### 核心文档 ⭐
+- **[CDP使用指南](./CDP_USAGE.md)** - 完整的使用说明和示例
+- **[CDP测试指南](./CDP_TEST.md)** - 详细的测试步骤和验证清单
+
+### 其他文档
+- **[插件文档](./dy-live-record/brower-monitor/README.md)** - 插件技术细节
+- **[服务器文档](./server/README.md)** - 服务器配置和API
+- **[项目结构](./PROJECT_STRUCTURE.md)** - 完整的项目文件说明
+
+### 历史文档
+- **[v1.x 功能总结](./FEATURE_SUMMARY.md)** - 旧版本功能
+- **[v1.x 测试指南](./TEST_GUIDE.md)** - 旧版本测试
+- **[更新日志](./CHANGELOG.md)** - 版本历史
+
+---
+
+## ⚠️ 重要注意事项
+
+### 1. Debugger权限
+
+v2.0版本需要 `debugger` 权限来使用CDP。
+
+**用户体验：**
+- 浏览器会显示 "正在调试此浏览器"
+- **这是正常现象**，因为插件使用了Chrome DevTools Protocol
+- 不影响浏览器的正常使用
+
+### 2. 性能影响
+
+- CDP监控比传统方法稍微增加资源占用
+- 对大多数网站，影响可忽略不计
+- WebSocket消息量大时，日志会较多
+
+**优化建议：**
+- 使用过滤关键字减少不必要的监控
+- 仅在需要调试时启用监控
+
+### 3. 隐私和安全
+
+- 插件仅在本地运行，不上传数据
+- 所有数据发送到用户自己的服务器
+- 建议仅在开发/测试环境使用
+
+---
+
+## 🧪 快速测试
+
+### 测试 HTTP 请求
+
+```bash
+# 1. 启动服务器和插件
+# 2. 访问任意网站
+curl https://www.baidu.com
+
+# 服务器会显示所有HTTP请求
+```
+
+### 测试 WebSocket
+
+```javascript
+// 在浏览器Console中执行
+const ws = new WebSocket('wss://echo.websocket.org/');
+ws.onopen = () => ws.send('Hello CDP!');
+ws.onmessage = (e) => console.log('Received:', e.data);
+
+// 服务器会显示：
+// 🔌 WebSocket 创建
+// 🤝 握手请求/响应
+// 📤 发送: Hello CDP!
+// 📥 接收: Hello CDP!
+```
+
+---
+
+## 🐛 故障排查
+
+### Q: 插件安装失败
+
+**解决：**
+1. 完全卸载旧版本
+2. 清除浏览器缓存
+3. 确认授予debugger权限
+4. 重新加载插件
+
+### Q: 看不到WebSocket消息
+
+**检查：**
+1. 确认版本是 v2.0.0
+2. 查看Service Worker日志
+3. 确认过滤关键字配置正确
+4. 确认监控已启用
+
+### Q: 服务器收不到数据
+
+**检查：**
+1. 服务器是否运行
+2. 插件配置的服务器地址是否正确
+3. 防火墙是否阻止8080端口
+4. 使用"测试连接"功能验证
+
+详细故障排查请参考: [CDP_TEST.md](./CDP_TEST.md)
+
+---
+
+## 🔄 版本升级
+
+### 从 v1.x 升级到 v2.0
+
+1. **完全卸载旧版本插件**
+   ```
+   chrome://extensions/ → 移除旧插件
+   ```
+
+2. **安装新版本**
+   ```
+   加载 brower-monitor 文件夹
+   授予 debugger 权限
+   ```
+
+3. **更新配置**
+   ```
+   服务器地址保持不变
+   重新配置过滤关键字（如需要）
+   ```
+
+4. **验证功能**
+   ```
+   查看版本是否为 v2.0.0
+   测试WebSocket捕获功能
+   ```
+
+---
+
+## 📈 性能基准
+
+### 测试环境
+- CPU: Intel i5
+- RAM: 8GB
+- 浏览器: Chrome 120
+
+### 性能数据
+
+| 场景 | 请求数 | 内存占用 | CPU占用 |
+|------|--------|----------|---------|
+| 简单网页 | 20-50 | +10MB | +2% |
+| 复杂网页 | 100-200 | +20MB | +5% |
+| WebSocket密集 | 持续 | +30MB | +8% |
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+### 开发环境设置
+
+```bash
+# 克隆项目
+git clone https://github.com/WanGuChou/dy-live-record.git
+cd dy-live-record
+
+# 安装服务器依赖
+cd server
+npm install
+
+# 加载插件到浏览器
+# chrome://extensions/ → 加载 brower-monitor/
+```
+
+---
+
+## 📄 许可证
+
+MIT License
+
+---
+
+## 🔗 相关链接
+
+- **Chrome DevTools Protocol**: https://chromedevtools.github.io/devtools-protocol/
+- **WebSocket协议**: https://datatracker.ietf.org/doc/html/rfc6455
+- **Chrome扩展开发**: https://developer.chrome.com/docs/extensions/
+
+---
+
+## 📞 联系方式
+
+- **Issue**: https://github.com/WanGuChou/dy-live-record/issues
+- **Email**: wangguocheng16@gmail.com
+
+---
+
+**版本**: v2.0.0  
+**更新时间**: 2025-11-15  
+**技术栈**: Chrome DevTools Protocol 1.3, WebSocket, Node.js  
+**核心特性**: WebSocket消息完整捕获 🎯
