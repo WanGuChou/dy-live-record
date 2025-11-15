@@ -1,4 +1,4 @@
-// Background Service Worker for URL and WebSocket Monitoring
+// Background Service Worker - 监控URL和所有网络请求
 
 let wsConnection = null;
 let serverUrl = '';
@@ -10,6 +10,8 @@ async function loadConfig() {
   const result = await chrome.storage.local.get(['serverUrl', 'isEnabled']);
   serverUrl = result.serverUrl || 'ws://localhost:8080/monitor';
   isEnabled = result.isEnabled !== undefined ? result.isEnabled : false;
+  
+  console.log('配置已加载:', { serverUrl, isEnabled });
   
   if (isEnabled) {
     connectWebSocket();
@@ -23,6 +25,7 @@ function connectWebSocket() {
   }
 
   try {
+    console.log('正在连接WebSocket:', serverUrl);
     wsConnection = new WebSocket(serverUrl);
 
     wsConnection.onopen = () => {
@@ -33,7 +36,6 @@ function connectWebSocket() {
         timestamp: new Date().toISOString()
       });
       
-      // 清除重连定时器
       if (reconnectInterval) {
         clearInterval(reconnectInterval);
         reconnectInterval = null;
@@ -52,10 +54,9 @@ function connectWebSocket() {
       console.log('WebSocket连接已关闭');
       wsConnection = null;
       
-      // 如果启用状态，则尝试重连
       if (isEnabled && !reconnectInterval) {
         reconnectInterval = setInterval(() => {
-          console.log('尝试重新连接WebSocket...');
+          console.log('尝试重新连接...');
           connectWebSocket();
         }, 5000);
       }
@@ -83,21 +84,18 @@ function sendMessage(data) {
   if (wsConnection?.readyState === WebSocket.OPEN) {
     try {
       wsConnection.send(JSON.stringify(data));
-      console.log('消息已发送:', data);
     } catch (error) {
       console.error('发送消息失败:', error);
     }
-  } else {
-    console.warn('WebSocket未连接，消息未发送');
   }
 }
 
-// 监听标签页URL变化
+// 监听地址栏URL变化
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!isEnabled) return;
 
   if (changeInfo.url) {
-    const urlData = {
+    const data = {
       type: 'url_change',
       tabId: tabId,
       url: changeInfo.url,
@@ -105,66 +103,66 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       timestamp: new Date().toISOString()
     };
     
-    console.log('URL变化:', urlData);
-    sendMessage(urlData);
+    console.log('地址栏URL变化:', data.url);
+    sendMessage(data);
   }
 });
 
-// 监听新标签页创建
-chrome.tabs.onCreated.addListener((tab) => {
-  if (!isEnabled) return;
-
-  const tabData = {
-    type: 'tab_created',
-    tabId: tab.id,
-    url: tab.url || '',
-    timestamp: new Date().toISOString()
-  };
-  
-  console.log('新标签页:', tabData);
-  sendMessage(tabData);
-});
-
-// 监听标签页关闭
-chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-  if (!isEnabled) return;
-
-  const tabData = {
-    type: 'tab_closed',
-    tabId: tabId,
-    timestamp: new Date().toISOString()
-  };
-  
-  console.log('标签页关闭:', tabData);
-  sendMessage(tabData);
-});
-
-// 监听标签页激活
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  if (!isEnabled) return;
-
-  try {
-    const tab = await chrome.tabs.get(activeInfo.tabId);
-    const tabData = {
-      type: 'tab_activated',
-      tabId: activeInfo.tabId,
-      url: tab.url || '',
-      title: tab.title || '',
+// 监听所有网络请求发起
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (!isEnabled) return;
+    
+    const data = {
+      type: 'request',
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method,
+      resourceType: details.type,
+      tabId: details.tabId,
+      frameId: details.frameId,
       timestamp: new Date().toISOString()
     };
     
-    console.log('标签页激活:', tabData);
-    sendMessage(tabData);
-  } catch (error) {
-    console.error('获取标签页信息失败:', error);
-  }
-});
+    // 只在控制台简要输出，避免日志过多
+    if (details.type === 'main_frame') {
+      console.log('主请求:', data.url);
+    }
+    
+    sendMessage(data);
+  },
+  { urls: ['<all_urls>'] },
+  ['requestBody']
+);
+
+// 监听网络请求完成（可选，获取响应状态）
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    if (!isEnabled) return;
+    
+    const data = {
+      type: 'request_completed',
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method,
+      statusCode: details.statusCode,
+      resourceType: details.type,
+      tabId: details.tabId,
+      timestamp: new Date().toISOString()
+    };
+    
+    sendMessage(data);
+  },
+  { urls: ['<all_urls>'] }
+);
 
 // 监听来自popup的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'updateConfig') {
     serverUrl = request.serverUrl;
     isEnabled = request.isEnabled;
+    
+    console.log('配置已更新:', { serverUrl, isEnabled });
     
     if (isEnabled) {
       connectWebSocket();

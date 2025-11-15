@@ -1,157 +1,113 @@
-# URL & WebSocket Monitor - 浏览器插件
+# URL & 请求监控 - 浏览器插件
 
-一个用于监控浏览器URL变化并通过WebSocket将数据发送到服务器的Chrome/Edge扩展插件。
+监控浏览器地址栏URL变化和所有网络请求，并通过WebSocket发送到服务器。
 
-## 功能特性
+## 功能
 
-- ✅ 实时监控所有标签页的URL变化
-- ✅ 捕获标签页的创建、关闭和激活事件
-- ✅ 通过WebSocket将数据实时发送到服务器
+- ✅ 监控地址栏URL变化
+- ✅ 捕获所有网络请求（包括AJAX、图片、脚本等）
+- ✅ 实时通过WebSocket发送到服务器
 - ✅ 自动重连机制
-- ✅ 简洁美观的配置界面
-- ✅ 连接状态实时显示
+- ✅ 简洁的配置界面
 
-## 目录结构
+## 安装
 
-```
-brower-monitor/
-├── manifest.json          # 扩展配置文件
-├── background.js          # 后台服务脚本（URL监控+WebSocket客户端）
-├── popup.html            # 弹出窗口HTML
-├── popup.js              # 弹出窗口脚本
-├── icons/                # 图标文件夹
-│   ├── icon16.png
-│   ├── icon32.png
-│   ├── icon48.png
-│   └── icon128.png
-└── README.md             # 说明文档
-```
+### 1. 加载插件到浏览器
 
-## 安装步骤
+**Chrome浏览器：**
+1. 打开 `chrome://extensions/`
+2. 开启"开发者模式"
+3. 点击"加载已解压的扩展程序"
+4. 选择 `brower-monitor` 文件夹
 
-### 1. 准备图标文件
+**Edge浏览器：**
+1. 打开 `edge://extensions/`
+2. 开启"开发人员模式"
+3. 点击"加载解压缩的扩展"
+4. 选择 `brower-monitor` 文件夹
 
-在 `icons` 文件夹中放置以下尺寸的图标：
-- icon16.png (16x16 像素)
-- icon32.png (32x32 像素)
-- icon48.png (48x48 像素)
-- icon128.png (128x128 像素)
-
-### 2. 加载到浏览器
-
-#### Chrome浏览器
-1. 打开Chrome浏览器
-2. 在地址栏输入 `chrome://extensions/`
-3. 开启右上角的"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择 `brower-monitor` 文件夹
-
-#### Edge浏览器
-1. 打开Edge浏览器
-2. 在地址栏输入 `edge://extensions/`
-3. 开启左下角的"开发人员模式"
-4. 点击"加载解压缩的扩展"
-5. 选择 `brower-monitor` 文件夹
-
-## 使用方法
-
-### 1. 配置WebSocket服务器
+### 2. 配置插件
 
 1. 点击浏览器工具栏中的插件图标
-2. 在弹出的配置窗口中输入WebSocket服务器地址
-   - 格式：`ws://your-server:port/path` 或 `wss://your-server:port/path`
-   - 示例：`ws://localhost:8080/monitor`
-3. 点击"测试连接"按钮验证服务器是否可访问
-4. 点击"保存配置"按钮保存设置
+2. 输入WebSocket服务器地址：`ws://localhost:8080/monitor`
+3. 点击"测试连接"
+4. 点击"保存配置"
+5. 开启"启用监控"开关
 
-### 2. 启用监控
+## 使用
 
-1. 在配置窗口中，切换"启用监控"开关
-2. 插件将开始监控所有标签页的URL变化
-3. 状态指示器会显示当前连接状态
+### 启动服务器
 
-### 3. 查看状态
-
-- **已连接**：绿色指示灯，表示已成功连接到服务器
-- **连接中...**：红色指示灯闪烁，表示正在尝试连接
-- **未连接**：红色指示灯，表示未连接或连接失败
-
-## WebSocket消息格式
-
-插件会发送以下类型的JSON消息到服务器：
-
-### 1. 连接建立
-```json
-{
-  "type": "connection",
-  "status": "connected",
-  "timestamp": "2025-11-15T10:30:00.000Z"
-}
+```bash
+cd ../../server
+npm install
+npm start
 ```
 
-### 2. URL变化
+服务器将在 `ws://localhost:8080/monitor` 运行。
+
+### 监控数据
+
+插件会自动发送以下数据到服务器：
+
+#### 1. 地址栏URL变化
+当用户在地址栏输入新URL或点击链接时触发。
+
 ```json
 {
   "type": "url_change",
   "tabId": 12345,
-  "url": "https://example.com/page",
-  "title": "Page Title",
-  "timestamp": "2025-11-15T10:30:00.000Z"
-}
-```
-
-### 3. 新标签页创建
-```json
-{
-  "type": "tab_created",
-  "tabId": 12345,
   "url": "https://example.com",
-  "timestamp": "2025-11-15T10:30:00.000Z"
+  "title": "页面标题",
+  "timestamp": "2025-11-15T10:00:00.000Z"
 }
 ```
 
-### 4. 标签页关闭
+#### 2. 网络请求发起
+浏览器发起的所有请求（页面、图片、脚本、API等）。
+
 ```json
 {
-  "type": "tab_closed",
+  "type": "request",
+  "requestId": "12345",
+  "url": "https://example.com/api/data",
+  "method": "GET",
+  "resourceType": "xmlhttprequest",
   "tabId": 12345,
-  "timestamp": "2025-11-15T10:30:00.000Z"
+  "frameId": 0,
+  "timestamp": "2025-11-15T10:00:00.000Z"
 }
 ```
 
-### 5. 标签页激活
+**resourceType 类型：**
+- `main_frame`: 主页面
+- `sub_frame`: iframe
+- `stylesheet`: CSS文件
+- `script`: JavaScript文件
+- `image`: 图片
+- `xmlhttprequest`: AJAX请求
+- `websocket`: WebSocket连接
+- 等等...
+
+#### 3. 请求完成
+请求完成后的响应状态。
+
 ```json
 {
-  "type": "tab_activated",
+  "type": "request_completed",
+  "requestId": "12345",
+  "url": "https://example.com/api/data",
+  "method": "GET",
+  "statusCode": 200,
+  "resourceType": "xmlhttprequest",
   "tabId": 12345,
-  "url": "https://example.com",
-  "title": "Page Title",
-  "timestamp": "2025-11-15T10:30:00.000Z"
+  "timestamp": "2025-11-15T10:00:00.000Z"
 }
 ```
 
-## 服务器端
+## 服务器端示例
 
-### Node.js WebSocket服务器
-
-本项目在根目录提供了完整的WebSocket服务器实现，位于 `../../server/` 目录。
-
-**启动服务器：**
-
-```bash
-# 进入服务器目录
-cd ../../server
-
-# 安装依赖
-npm install
-
-# 启动服务器
-npm start
-```
-
-服务器将在 `ws://localhost:8080/monitor` 上运行。
-
-详细文档请参考：[../../server/README.md](../../server/README.md)
+查看 `../../server/` 目录中的完整服务器实现。
 
 ### 简单示例
 
@@ -161,114 +117,53 @@ const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: 8080, path: '/monitor' });
 
 wss.on('connection', (ws) => {
-  console.log('新客户端已连接');
+  console.log('客户端已连接');
 
   ws.on('message', (message) => {
     const data = JSON.parse(message);
-    console.log('收到消息:', data);
+    
+    switch(data.type) {
+      case 'url_change':
+        console.log('URL变化:', data.url);
+        // 处理URL变化...
+        break;
+        
+      case 'request':
+        console.log('网络请求:', data.url);
+        // 处理网络请求...
+        break;
+        
+      case 'request_completed':
+        console.log('请求完成:', data.url, '状态码:', data.statusCode);
+        // 处理请求完成...
+        break;
+    }
   });
 });
-
-console.log('WebSocket服务器运行在 ws://localhost:8080/monitor');
 ```
 
-### Spring Boot WebSocket服务器示例
+## 注意事项
 
-```java
-import org.springframework.stereotype.Component;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-@Component
-public class MonitorWebSocketHandler extends TextWebSocketHandler {
-    
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
-        System.out.println("新客户端已连接: " + session.getId());
-    }
-
-    @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
-        try {
-            String payload = message.getPayload();
-            Map<String, Object> data = objectMapper.readValue(payload, Map.class);
-            
-            String type = (String) data.get("type");
-            System.out.println("收到消息类型: " + type);
-            
-            // 处理消息
-            switch (type) {
-                case "url_change":
-                    System.out.println("URL变化: " + data.get("url"));
-                    break;
-                case "tab_created":
-                    System.out.println("新标签页: " + data.get("tabId"));
-                    break;
-                // 处理其他类型...
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-}
-```
-
-## 技术特性
-
-- **Manifest V3**：使用最新的Chrome扩展标准
-- **Service Worker**：后台脚本使用Service Worker模式
-- **自动重连**：WebSocket断开后每5秒尝试重连
-- **本地存储**：使用Chrome Storage API保存配置
-- **现代UI**：响应式设计，美观的渐变色界面
+- **请求量大**：网页可能产生大量请求（图片、CSS、JS等），服务器需要能处理高频消息
+- **仅主请求**：服务器端示例只打印主页面请求，避免日志过多
+- **性能影响**：监控所有请求可能略微影响浏览器性能
+- **数据存储**：建议在服务器端对数据进行过滤和存储
 
 ## 权限说明
 
 插件需要以下权限：
 - `tabs`：访问标签页信息
 - `webRequest`：监听网络请求
-- `storage`：保存配置信息
+- `storage`：保存配置
 - `activeTab`：访问活动标签页
-- `<all_urls>`：监控所有网站的URL变化
+- `<all_urls>`：监控所有网站
 
-## 调试技巧
+## 调试
 
-### 1. 查看后台日志
+查看插件日志：
 - Chrome: `chrome://extensions/` → 点击"Service Worker"
 - Edge: `edge://extensions/` → 点击"检查视图"
-
-### 2. 查看popup日志
-- 右键点击插件图标 → 选择"检查弹出内容"
-
-### 3. 常见问题
-- **无法连接服务器**：检查服务器地址是否正确，防火墙是否允许连接
-- **消息未发送**：确保"启用监控"开关已打开
-- **频繁断连**：检查网络状态和服务器稳定性
-
-## 开发环境
-
-- Manifest Version: 3
-- 兼容浏览器：
-  - Chrome 88+
-  - Edge 88+
-  - 其他基于Chromium的浏览器
 
 ## 许可证
 
 MIT License
-
-## 作者
-
-DY Live Record Team
-
-## 更新日志
-
-### v1.0.0 (2025-11-15)
-- ✨ 初始版本发布
-- ✨ 实现URL监控功能
-- ✨ 实现WebSocket通信
-- ✨ 实现配置界面
-- ✨ 实现自动重连机制
