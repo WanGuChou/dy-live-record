@@ -269,12 +269,12 @@ url.includes('douyin.com')
 {
   "dependencies": {
     "ws": "^8.14.2",
-    "protobufjs": "^7.5.4"
+    "pako": "^2.1.0"
   }
 }
 ```
 
-`protobufjs` 用于 Protobuf 解析（目前使用原生Buffer操作，未来可能使用完整的.proto定义）。
+**注意**: `pako` 是 dycast 使用的 GZIP 解压库。`protobufjs` 保留用于未来可能的扩展，当前实现直接移植了 dycast 的 ByteBuffer 代码。
 
 ---
 

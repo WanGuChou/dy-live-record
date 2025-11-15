@@ -17,6 +17,7 @@
   "author": "DY Live Record Team",
   "license": "MIT",
   "dependencies": {
+    "pako": "^2.1.0",
     "protobufjs": "^7.5.4",
     "ws": "^8.14.2"
   },

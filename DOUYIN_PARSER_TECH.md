@@ -490,7 +490,9 @@ while (offset < buffer.length) {
 
 - **Protocol Buffers 文档**: https://protobuf.dev/
 - **Protocol Buffers Encoding**: https://protobuf.dev/programming-guides/encoding/
-- **dycast 项目**: https://github.com/skmcj/dycast
+- **dycast 项目**: https://github.com/skmcj/dycast （核心代码来源）
+- **dycast model.ts**: https://github.com/skmcj/dycast/blob/main/src/core/model.ts （ByteBuffer 实现）
+- **pako**: https://github.com/nodeca/pako （GZIP 解压库）
 - **抖音直播协议分析**: https://github.com/YunzhiYike/live-tool
 
 ## 许可证
