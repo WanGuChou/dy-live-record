@@ -2,12 +2,14 @@
  * WebSocket服务器
  * 用于接收浏览器插件发送的CDP监控数据
  * 包括所有网络请求和WebSocket消息
+ * 特别支持抖音直播WebSocket消息自动解析
  * 
  * 安装依赖：npm install
  * 运行服务器：npm start
  */
 
 const WebSocket = require('ws');
+const douyinParser = require('./dy_ws_msg');
 
 // 创建WebSocket服务器，监听8080端口的/monitor路径
 const wss = new WebSocket.Server({ 
@@ -27,6 +29,7 @@ console.log('  ✅ WebSocket 握手过程');
 console.log('  ✅ WebSocket 发送的所有消息');
 console.log('  ✅ WebSocket 接收的所有消息');
 console.log('  ✅ WebSocket 连接关闭');
+console.log('  🎬 抖音直播消息自动解析');
 console.log('');
 console.log('等待客户端连接...');
 console.log('');
@@ -36,6 +39,7 @@ const clients = new Set();
 let messageCount = 0;
 let requestCount = 0;
 let websocketCount = 0;
+let douyinMessageCount = 0; // 抖音直播消息计数
 
 // 辅助函数：截断长字符串
 function truncate(str, maxLength = 500) {
@@ -128,12 +132,16 @@ wss.on('connection', (ws, req) => {
         // ========== WebSocket 生命周期 ==========
         case 'websocket_created':
           websocketCount++;
+          const isDouyinWS = data.url && douyinParser.isDouyinLiveWS(data.url);
           console.log(`╔${'═'.repeat(78)}╗`);
-          console.log(`║ 🔌 WebSocket 创建 #${websocketCount}`);
+          console.log(`║ 🔌 WebSocket 创建 #${websocketCount}${isDouyinWS ? ' [抖音直播]' : ''}`);
           console.log(`╠${'═'.repeat(78)}╣`);
           console.log(`║ 完整URL: ${data.url}`);
           console.log(`║ 标签页ID: ${data.tabId}`);
           console.log(`║ 请求ID: ${data.requestId}`);
+          if (isDouyinWS) {
+            console.log(`║ ⭐ 抖音直播WebSocket，将自动解析消息内容`);
+          }
           console.log(`║ 时间: ${data.timestamp}`);
           console.log(`╚${'═'.repeat(78)}╝`);
           console.log('');
@@ -172,6 +180,21 @@ wss.on('connection', (ws, req) => {
           
         // ========== WebSocket 消息 ==========
         case 'websocket_frame_sent':
+          // 检测是否为抖音直播消息
+          if (data.url && douyinParser.isDouyinLiveWS(data.url)) {
+            douyinMessageCount++;
+            const parsed = douyinParser.parseMessage(data.payloadData, data.url);
+            if (parsed) {
+              const formatted = douyinParser.formatMessage(parsed);
+              if (formatted) {
+                console.log(formatted);
+                console.log('');
+                break;
+              }
+            }
+          }
+          
+          // 非抖音消息或解析失败，显示原始格式
           console.log(`┌${'─'.repeat(78)}┐`);
           console.log(`│ 📤 WebSocket 发送消息`);
           console.log(`├${'─'.repeat(78)}┤`);
@@ -190,6 +213,21 @@ wss.on('connection', (ws, req) => {
           break;
           
         case 'websocket_frame_received':
+          // 检测是否为抖音直播消息
+          if (data.url && douyinParser.isDouyinLiveWS(data.url)) {
+            douyinMessageCount++;
+            const parsed = douyinParser.parseMessage(data.payloadData, data.url);
+            if (parsed) {
+              const formatted = douyinParser.formatMessage(parsed);
+              if (formatted) {
+                console.log(formatted);
+                console.log('');
+                break;
+              }
+            }
+          }
+          
+          // 非抖音消息或解析失败，显示原始格式
           console.log(`┌${'─'.repeat(78)}┐`);
           console.log(`│ 📥 WebSocket 接收消息`);
           console.log(`├${'─'.repeat(78)}┤`);
@@ -244,8 +282,15 @@ wss.on('connection', (ws, req) => {
         console.log(`║ 总消息数: ${messageCount}`);
         console.log(`║ HTTP请求数: ${requestCount}`);
         console.log(`║ WebSocket连接数: ${websocketCount}`);
+        console.log(`║ 抖音直播消息: ${douyinMessageCount}`);
         console.log(`╚${'═'.repeat(78)}╝`);
         console.log('');
+        
+        // 如果有抖音消息，显示抖音统计
+        if (douyinMessageCount > 0) {
+          console.log(douyinParser.formatStatistics());
+          console.log('');
+        }
       }
       
     } catch (error) {
@@ -276,7 +321,7 @@ wss.on('connection', (ws, req) => {
   // 发送欢迎消息
   ws.send(JSON.stringify({
     type: 'welcome',
-    message: '欢迎连接到CDP监控服务器',
+    message: '欢迎连接到CDP监控服务器（支持抖音直播解析）',
     timestamp: new Date().toISOString()
   }));
 });
@@ -308,7 +353,14 @@ process.on('SIGINT', () => {
   console.log(`║ 总消息数: ${messageCount.toString().padEnd(28)} ║`);
   console.log(`║ HTTP请求数: ${requestCount.toString().padEnd(26)} ║`);
   console.log(`║ WebSocket连接数: ${websocketCount.toString().padEnd(22)} ║`);
+  console.log(`║ 抖音直播消息: ${douyinMessageCount.toString().padEnd(24)} ║`);
   console.log('╚═════════════════════════════════════════╝');
+  
+  // 显示抖音直播统计
+  if (douyinMessageCount > 0) {
+    console.log('');
+    console.log(douyinParser.formatStatistics());
+  }
   
   // 关闭所有客户端连接
   wss.clients.forEach((client) => {
