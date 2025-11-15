@@ -389,14 +389,14 @@ function decodeUser(binary) {
   const bb = createByteBuffer(binary);
   const user = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 1: // id
         user.id = readVarint64(bb, false);
         break;
@@ -410,7 +410,7 @@ function decodeUser(binary) {
         user.level = readVarint32(bb);
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -421,14 +421,14 @@ function decodeChatMessage(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 2: // user
         {
           const limit = pushTemporaryLength(bb);
@@ -440,7 +440,7 @@ function decodeChatMessage(binary) {
         message.content = readString(bb, readVarint32(bb));
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -451,14 +451,14 @@ function decodeGiftMessage(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 2: // giftId
         message.giftId = readVarint64(bb, false);
         break;
@@ -475,7 +475,7 @@ function decodeGiftMessage(binary) {
           bb.limit = limit;
         }
         break;
-      case 9: // gift (GiftStruct)
+      case 15: // gift (GiftStruct) - 注意：是 field 15，不是 9！
         {
           const limit = pushTemporaryLength(bb);
           message.gift = decodeGiftStruct(bb);
@@ -483,7 +483,7 @@ function decodeGiftMessage(binary) {
         }
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -493,25 +493,25 @@ function decodeGiftMessage(binary) {
 function decodeGiftStruct(bb) {
   const gift = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
-      case 1: // giftId
+      case 0:
+        break end_of_message;
+      
+      case 5: // id - 注意：是 field 5，不是 1！
         gift.id = readVarint64(bb, false);
         break;
-      case 2: // name
-        gift.name = readString(bb, readVarint32(bb));
-        break;
-      case 10: // diamondCount
+      case 12: // diamondCount - 注意：是 field 12，不是 10！
         gift.diamondCount = readVarint32(bb);
         break;
+      case 16: // name - 注意：是 field 16，不是 2！
+        gift.name = readString(bb, readVarint32(bb));
+        break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -522,14 +522,14 @@ function decodeLikeMessage(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 2: // user
         {
           const limit = pushTemporaryLength(bb);
@@ -544,7 +544,7 @@ function decodeLikeMessage(binary) {
         message.total = readVarint64(bb, false);
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -555,14 +555,14 @@ function decodeMemberMessage(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 2: // user
         {
           const limit = pushTemporaryLength(bb);
@@ -574,7 +574,7 @@ function decodeMemberMessage(binary) {
         message.memberCount = readVarint64(bb, false);
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -585,14 +585,14 @@ function decodeSocialMessage(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 2: // user
         {
           const limit = pushTemporaryLength(bb);
@@ -604,7 +604,7 @@ function decodeSocialMessage(binary) {
         message.followCount = readVarint64(bb, false);
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -615,14 +615,14 @@ function decodeRoomUserSeqMessage(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 2: // total (在线人数)
         message.total = readVarint64(bb, false);
         break;
@@ -630,7 +630,7 @@ function decodeRoomUserSeqMessage(binary) {
         message.totalUser = readVarint64(bb, false);
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
@@ -641,14 +641,14 @@ function decodeRoomStatsMessage(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
 
-  while (!isAtEnd(bb)) {
+  end_of_message: while (!isAtEnd(bb)) {
     const tag = readVarint32(bb);
-    const wireType = tag & 7;
     const fieldNumber = tag >>> 3;
 
-    if (fieldNumber === 0) break;
-
     switch (fieldNumber) {
+      case 0:
+        break end_of_message;
+      
       case 2: // displayShort (简短显示)
         message.displayShort = readString(bb, readVarint32(bb));
         break;
@@ -659,7 +659,7 @@ function decodeRoomStatsMessage(binary) {
         message.displayLong = readString(bb, readVarint32(bb));
         break;
       default:
-        skipUnknownField(bb, wireType);
+        skipUnknownField(bb, tag & 7);
     }
   }
 
