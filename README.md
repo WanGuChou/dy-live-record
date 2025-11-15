@@ -213,7 +213,8 @@ CDP Monitor 服务器已启动
 ### 抖音直播相关 🎬
 - **[抖音解析详细说明](./server/README_DOUYIN.md)** - 消息类型和功能说明
 - **[抖音解析技术文档](./DOUYIN_PARSER_TECH.md)** - Protobuf解析原理和实现细节
-- **[完整消息解析实现](./DOUYIN_PARSER_FIX.md)** - dycast完整解码实现说明 ⭐ NEW
+- **[完整消息解析实现](./DOUYIN_PARSER_FIX.md)** - dycast完整解码实现说明
+- **[字段编号修复说明](./DOUYIN_FIELD_FIX.md)** - 解决 Invalid wire type 错误 ⭐ NEW
 - **[WebSocket日志记录](./server/README_LOGS.md)** - 日志文件自动保存和管理 ⭐
 
 ### 其他文档
