@@ -2,7 +2,10 @@
 
 ## 项目概述
 
-这是一个抖音直播录制相关的项目，包含浏览器监控插件，用于捕获和记录浏览器地址栏URL变化和所有网络请求。
+这是一个抖音直播录制相关的项目，包含浏览器监控插件，用于捕获和记录浏览器地址栏URL变化和所有网络请求（包括WebSocket连接）。
+
+**最新版本**: v1.0.1 ✅  
+**主要改进**: 修复WebSocket捕获和刷新页面问题
 
 ## 项目结构
 
@@ -54,8 +57,11 @@ npm start
 ### 浏览器插件功能
 - ✅ 监控地址栏URL变化
 - ✅ 捕获所有网络请求（页面、图片、脚本、API等）
-- ✅ **所有请求都打印到插件控制台日志** ⭐ 新增
-- ✅ **关键字过滤功能（只发送匹配的请求）** ⭐ 新增
+- ✅ **所有请求都打印到插件控制台日志** ⭐
+- ✅ **关键字过滤功能（只发送匹配的请求）** ⭐
+- ✅ **WebSocket连接专门捕获** ⭐ v1.0.1
+- ✅ **页面刷新完整捕获** ⭐ v1.0.1
+- ✅ **请求计数和错误捕获** ⭐ v1.0.1
 - ✅ 通过WebSocket实时发送数据到服务器
 - ✅ 自动重连机制（断线后每5秒重连）
 - ✅ 简洁的配置界面
@@ -185,8 +191,13 @@ npm start
 
 ## 文档
 
-- **功能总结**: [FEATURE_SUMMARY.md](./FEATURE_SUMMARY.md) - 详细功能说明 ⭐
-- **测试指南**: [TEST_GUIDE.md](./TEST_GUIDE.md) - 如何测试新功能 ⭐
+### 核心文档
+- **改进说明**: [IMPROVEMENTS.md](./IMPROVEMENTS.md) - v1.0.1改进详情 ⭐⭐
+- **详细测试**: [DETAILED_TEST.md](./DETAILED_TEST.md) - WebSocket和刷新测试 ⭐⭐
+- **功能总结**: [FEATURE_SUMMARY.md](./FEATURE_SUMMARY.md) - 完整功能说明
+- **测试指南**: [TEST_GUIDE.md](./TEST_GUIDE.md) - 基础测试指南
+
+### 其他文档
 - **使用说明**: [USAGE.md](./USAGE.md) - 快速使用指南
 - **更新日志**: [CHANGELOG.md](./CHANGELOG.md) - 版本更新记录
 - **插件文档**: [dy-live-record/brower-monitor/README.md](./dy-live-record/brower-monitor/README.md)

@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "URL & WebSocket Monitor",
-  "version": "1.0.0",
-  "description": "监控URL请求变化并通过WebSocket发送到服务器",
+  "name": "URL & Request Monitor",
+  "version": "1.0.1",
+  "description": "监控所有URL和网络请求并通过WebSocket发送到服务器",
   "permissions": [
     "tabs",
     "webRequest",
+    "webNavigation",
     "storage",
     "activeTab"
   ],
@@ -13,7 +14,8 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
