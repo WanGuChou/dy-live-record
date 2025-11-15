@@ -1,6 +1,6 @@
 /**
  * 抖音直播 WebSocket 消息解析器
- * 基于 dycast 项目: https://github.com/skmcj/dycast
+ * 完全按照 dycast 项目实现: https://github.com/skmcj/dycast
  * 
  * 使用 Protobuf + GZIP 压缩格式解析抖音直播消息
  */
@@ -9,12 +9,6 @@ const pako = require('pako');
 
 // ============ ByteBuffer 实现 (来自 dycast/model.ts) ============
 
-const textDecoder = new TextDecoder();
-const textEncoder = new TextEncoder();
-
-/**
- * ByteBuffer 结构
- */
 function createByteBuffer(bytes) {
   return {
     bytes: bytes || new Uint8Array(1024),
@@ -98,7 +92,6 @@ function readVarint64(bb, unsigned) {
     }
   }
 
-  // 转换为字符串表示（简化版）
   const low = part0 | (part1 << 28);
   const high = (part1 >>> 4) | (part2 << 24);
   
@@ -106,7 +99,6 @@ function readVarint64(bb, unsigned) {
     return String(low >>> 0);
   }
   
-  // 简单的64位转字符串（不完美但足够用）
   return String(high * 4294967296 + (low >>> 0));
 }
 
@@ -120,11 +112,9 @@ function readString(bb, count) {
   for (let i = 0; i < count; i++) {
     let c1 = bytes[i + offset], c2, c3, c4, c;
 
-    // 1 byte
     if ((c1 & 0x80) === 0) {
       text += fromCharCode(c1);
     }
-    // 2 bytes
     else if ((c1 & 0xe0) === 0xc0) {
       if (i + 1 >= count) text += invalid;
       else {
@@ -140,7 +130,6 @@ function readString(bb, count) {
         }
       }
     }
-    // 3 bytes
     else if ((c1 & 0xf0) === 0xe0) {
       if (i + 2 >= count) text += invalid;
       else {
@@ -157,7 +146,6 @@ function readString(bb, count) {
         }
       }
     }
-    // 4 bytes
     else if ((c1 & 0xf8) === 0xf0) {
       if (i + 3 >= count) text += invalid;
       else {
@@ -197,25 +185,18 @@ function skipUnknownField(bb, type) {
       advance(bb, readVarint32(bb));
       break;
     case 3: // Start group (deprecated)
-      // Skip the entire group by reading until we find the matching end group
-      // This is a simplified approach - just skip to the end of the buffer
-      // In practice, we should match start_group (3) with end_group (4)
       while (!isAtEnd(bb)) {
         const tag = readVarint32(bb);
         const wireType = tag & 7;
-        const fieldNumber = tag >>> 3;
         
-        // If we find end_group with same field number, we're done
         if (wireType === 4) {
           break;
         }
         
-        // Otherwise, skip this field recursively
         skipUnknownField(bb, wireType);
       }
       break;
     case 4: // End group (deprecated)
-      // This shouldn't be called directly, but if it is, just return
       break;
     case 5: // 32-bit
       advance(bb, 4);
@@ -234,9 +215,6 @@ function pushTemporaryLength(bb) {
 
 // ============ Protobuf 解码函数 (来自 dycast/model.ts) ============
 
-/**
- * 解码 PushFrame
- */
 function decodePushFrame(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
@@ -304,9 +282,6 @@ function decodePushFrame(binary) {
   return message;
 }
 
-/**
- * 解码 Response
- */
 function decodeResponse(binary) {
   const bb = createByteBuffer(binary);
   const message = {};
@@ -365,9 +340,6 @@ function decodeResponse(binary) {
   return message;
 }
 
-/**
- * 解码 Message (内部使用 ByteBuffer)
- */
 function decodeMessage(bb) {
   const message = {};
 
@@ -411,6 +383,289 @@ function decodeMessage(bb) {
   return message;
 }
 
+// ============ 消息解码函数 (简化版，只提取关键字段) ============
+
+function decodeUser(binary) {
+  const bb = createByteBuffer(binary);
+  const user = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 1: // id
+        user.id = readVarint64(bb, false);
+        break;
+      case 2: // shortId
+        user.shortId = readVarint64(bb, false);
+        break;
+      case 3: // nickname
+        user.nickname = readString(bb, readVarint32(bb));
+        break;
+      case 6: // level
+        user.level = readVarint32(bb);
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return user;
+}
+
+function decodeChatMessage(binary) {
+  const bb = createByteBuffer(binary);
+  const message = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 2: // user
+        {
+          const limit = pushTemporaryLength(bb);
+          message.user = decodeUser(bb);
+          bb.limit = limit;
+        }
+        break;
+      case 3: // content
+        message.content = readString(bb, readVarint32(bb));
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return message;
+}
+
+function decodeGiftMessage(binary) {
+  const bb = createByteBuffer(binary);
+  const message = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 2: // giftId
+        message.giftId = readVarint64(bb, false);
+        break;
+      case 5: // repeatCount
+        message.repeatCount = readVarint64(bb, false);
+        break;
+      case 6: // comboCount
+        message.comboCount = readVarint64(bb, false);
+        break;
+      case 7: // user
+        {
+          const limit = pushTemporaryLength(bb);
+          message.user = decodeUser(bb);
+          bb.limit = limit;
+        }
+        break;
+      case 9: // gift (GiftStruct)
+        {
+          const limit = pushTemporaryLength(bb);
+          message.gift = decodeGiftStruct(bb);
+          bb.limit = limit;
+        }
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return message;
+}
+
+function decodeGiftStruct(bb) {
+  const gift = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 1: // giftId
+        gift.id = readVarint64(bb, false);
+        break;
+      case 2: // name
+        gift.name = readString(bb, readVarint32(bb));
+        break;
+      case 10: // diamondCount
+        gift.diamondCount = readVarint32(bb);
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return gift;
+}
+
+function decodeLikeMessage(binary) {
+  const bb = createByteBuffer(binary);
+  const message = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 2: // user
+        {
+          const limit = pushTemporaryLength(bb);
+          message.user = decodeUser(bb);
+          bb.limit = limit;
+        }
+        break;
+      case 3: // count
+        message.count = readVarint64(bb, false);
+        break;
+      case 4: // total
+        message.total = readVarint64(bb, false);
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return message;
+}
+
+function decodeMemberMessage(binary) {
+  const bb = createByteBuffer(binary);
+  const message = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 2: // user
+        {
+          const limit = pushTemporaryLength(bb);
+          message.user = decodeUser(bb);
+          bb.limit = limit;
+        }
+        break;
+      case 3: // memberCount
+        message.memberCount = readVarint64(bb, false);
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return message;
+}
+
+function decodeSocialMessage(binary) {
+  const bb = createByteBuffer(binary);
+  const message = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 2: // user
+        {
+          const limit = pushTemporaryLength(bb);
+          message.user = decodeUser(bb);
+          bb.limit = limit;
+        }
+        break;
+      case 3: // followCount
+        message.followCount = readVarint64(bb, false);
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return message;
+}
+
+function decodeRoomUserSeqMessage(binary) {
+  const bb = createByteBuffer(binary);
+  const message = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 2: // total (在线人数)
+        message.total = readVarint64(bb, false);
+        break;
+      case 3: // totalUser (总观看人数)
+        message.totalUser = readVarint64(bb, false);
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return message;
+}
+
+function decodeRoomStatsMessage(binary) {
+  const bb = createByteBuffer(binary);
+  const message = {};
+
+  while (!isAtEnd(bb)) {
+    const tag = readVarint32(bb);
+    const wireType = tag & 7;
+    const fieldNumber = tag >>> 3;
+
+    if (fieldNumber === 0) break;
+
+    switch (fieldNumber) {
+      case 2: // displayShort (简短显示)
+        message.displayShort = readString(bb, readVarint32(bb));
+        break;
+      case 3: // displayMiddle (中等显示)
+        message.displayMiddle = readString(bb, readVarint32(bb));
+        break;
+      case 4: // displayLong (完整显示)
+        message.displayLong = readString(bb, readVarint32(bb));
+        break;
+      default:
+        skipUnknownField(bb, wireType);
+    }
+  }
+
+  return message;
+}
+
 // ============ 抖音消息解析器 ============
 
 class DouyinWSMessageParser {
@@ -438,25 +693,17 @@ class DouyinWSMessageParser {
     };
   }
 
-  /**
-   * 检测是否为抖音直播 WebSocket URL
-   */
   isDouyinLiveWS(url) {
     if (!url) return false;
     return url.includes('webcast') && url.includes('douyin.com');
   }
 
-  /**
-   * 解析 WebSocket 消息
-   */
   async parseMessage(payloadData, url = '') {
     if (!payloadData) return null;
     
     try {
-      // 转换为 Uint8Array
       let buffer;
       if (typeof payloadData === 'string') {
-        // Base64 解码
         buffer = Buffer.from(payloadData, 'base64');
       } else if (Buffer.isBuffer(payloadData)) {
         buffer = payloadData;
@@ -464,14 +711,12 @@ class DouyinWSMessageParser {
         buffer = Buffer.from(payloadData);
       }
 
-      // 转换为 Uint8Array (dycast 使用 Uint8Array)
       const uint8Array = new Uint8Array(buffer);
 
       // 1. 解析 PushFrame
       const pushFrame = decodePushFrame(uint8Array);
       
       if (!pushFrame || !pushFrame.payload) {
-        console.error('[Douyin] PushFrame 解析失败或无 payload');
         return null;
       }
 
@@ -481,7 +726,6 @@ class DouyinWSMessageParser {
       
       if (compressType === 'gzip') {
         try {
-          // 使用 pako 解压 (dycast 使用的库)
           payload = pako.ungzip(payload);
         } catch (e) {
           console.error('[Douyin] GZIP 解压失败:', e.message);
@@ -496,7 +740,7 @@ class DouyinWSMessageParser {
         return null;
       }
 
-      // 4. 解析每条消息
+      // 4. 解析每条消息 - 按照 dycast 的 _dealMessage 逻辑
       const results = [];
       for (const msg of response.messages) {
         if (msg.method && msg.payload) {
@@ -510,14 +754,10 @@ class DouyinWSMessageParser {
       return results.length > 0 ? results : null;
     } catch (e) {
       console.error('[Douyin] 解析消息失败:', e.message);
-      console.error(e.stack);
       return null;
     }
   }
 
-  /**
-   * 解析消息payload
-   */
   parseMessagePayload(method, payload) {
     this.statistics.totalMessages++;
 
@@ -529,138 +769,111 @@ class DouyinWSMessageParser {
       parsed: true
     };
 
-    // 提取文本信息
-    const texts = this.extractTexts(payload);
-
-    // 根据消息类型解析
-    if (method === 'WebcastChatMessage') {
-      this.statistics.chatCount++;
-      return {
-        ...result,
-        messageType: '聊天消息',
-        user: texts[0] || '匿名用户',
-        content: texts[texts.length - 1] || texts[1] || '',
-        allTexts: texts.slice(0, 5)
-      };
-    }
-
-    if (method === 'WebcastGiftMessage') {
-      this.statistics.giftCount++;
-      return {
-        ...result,
-        messageType: '礼物消息',
-        user: texts[0] || '匿名用户',
-        giftName: texts.find(t => t.length < 15 && t.length > 1) || texts[1] || '未知礼物',
-        allTexts: texts.slice(0, 5)
-      };
-    }
-
-    if (method === 'WebcastLikeMessage') {
-      this.statistics.likeCount++;
-      return {
-        ...result,
-        messageType: '点赞消息',
-        user: texts[0] || '匿名用户',
-        allTexts: texts.slice(0, 5)
-      };
-    }
-
-    if (method === 'WebcastMemberMessage') {
-      this.statistics.memberCount++;
-      return {
-        ...result,
-        messageType: '进入直播间',
-        user: texts[0] || '匿名用户',
-        allTexts: texts.slice(0, 5)
-      };
-    }
-
-    if (method === 'WebcastRoomUserSeqMessage') {
-      // 尝试提取在线人数
-      const numbers = this.extractNumbers(payload);
-      if (numbers.length > 0) {
-        this.statistics.onlineUsers = numbers[0];
-      }
-      return {
-        ...result,
-        messageType: '在线人数',
-        onlineCount: this.statistics.onlineUsers,
-        numbers: numbers.slice(0, 3)
-      };
-    }
-
-    if (method === 'WebcastSocialMessage') {
-      return {
-        ...result,
-        messageType: '关注消息',
-        user: texts[0] || '匿名用户',
-        allTexts: texts.slice(0, 5)
-      };
-    }
-
-    // 其他消息类型
-    return {
-      ...result,
-      texts: texts.slice(0, 10)
-    };
-  }
-
-  /**
-   * 从 Buffer 中提取文本
-   */
-  extractTexts(buffer) {
-    const texts = [];
-    const str = Buffer.from(buffer).toString('utf8');
-    
-    // 匹配中文、英文、数字的连续字符串
-    const regex = /[\u4e00-\u9fa5a-zA-Z0-9]{2,}/g;
-    const matches = str.match(regex);
-    
-    if (matches) {
-      const seen = new Set();
-      for (const match of matches) {
-        if (match.length >= 2 && match.length <= 50 && !seen.has(match)) {
-          // 过滤纯数字ID
-          if (!/^\d{10,}$/.test(match)) {
-            texts.push(match);
-            seen.add(match);
-          }
+    try {
+      // 按照 dycast 的 switch 逻辑解析不同类型的消息
+      switch (method) {
+        case 'WebcastChatMessage': {
+          const message = decodeChatMessage(payload);
+          this.statistics.chatCount++;
+          return {
+            ...result,
+            messageType: '聊天消息',
+            user: message.user?.nickname || '匿名用户',
+            userId: message.user?.id,
+            content: message.content || '',
+            level: message.user?.level
+          };
         }
-      }
-    }
-    
-    return texts.slice(0, 20);
-  }
 
-  /**
-   * 从 Buffer 中提取数字
-   */
-  extractNumbers(buffer) {
-    const numbers = [];
-    
-    for (let i = 0; i < buffer.length - 3; i++) {
-      if (buffer[i] < 0x80) {
-        try {
-          const num = buffer.readUInt32LE(i);
-          if (num > 0 && num < 10000000) {
-            numbers.push(num);
-          }
-        } catch (e) {
-          // ignore
+        case 'WebcastGiftMessage': {
+          const message = decodeGiftMessage(payload);
+          this.statistics.giftCount++;
+          return {
+            ...result,
+            messageType: '礼物消息',
+            user: message.user?.nickname || '匿名用户',
+            userId: message.user?.id,
+            giftName: message.gift?.name || '未知礼物',
+            giftId: message.gift?.id,
+            giftCount: message.repeatCount || message.comboCount || '1',
+            diamondCount: message.gift?.diamondCount
+          };
         }
+
+        case 'WebcastLikeMessage': {
+          const message = decodeLikeMessage(payload);
+          this.statistics.likeCount++;
+          return {
+            ...result,
+            messageType: '点赞消息',
+            user: message.user?.nickname || '匿名用户',
+            userId: message.user?.id,
+            count: message.count || '1',
+            total: message.total
+          };
+        }
+
+        case 'WebcastMemberMessage': {
+          const message = decodeMemberMessage(payload);
+          this.statistics.memberCount++;
+          return {
+            ...result,
+            messageType: '进入直播间',
+            user: message.user?.nickname || '匿名用户',
+            userId: message.user?.id,
+            memberCount: message.memberCount
+          };
+        }
+
+        case 'WebcastSocialMessage': {
+          const message = decodeSocialMessage(payload);
+          return {
+            ...result,
+            messageType: '关注消息',
+            user: message.user?.nickname || '匿名用户',
+            userId: message.user?.id,
+            followCount: message.followCount
+          };
+        }
+
+        case 'WebcastRoomUserSeqMessage': {
+          const message = decodeRoomUserSeqMessage(payload);
+          const total = message.total || '0';
+          this.statistics.onlineUsers = parseInt(total) || 0;
+          return {
+            ...result,
+            messageType: '在线人数',
+            total: total,
+            totalUser: message.totalUser || '0'
+          };
+        }
+
+        case 'WebcastRoomStatsMessage': {
+          const message = decodeRoomStatsMessage(payload);
+          const displayMiddle = message.displayMiddle || '0';
+          this.statistics.onlineUsers = parseInt(displayMiddle) || 0;
+          return {
+            ...result,
+            messageType: '直播间统计',
+            displayShort: message.displayShort,
+            displayMiddle: displayMiddle,
+            displayLong: message.displayLong
+          };
+        }
+
+        default:
+          // 其他消息类型，返回基本信息
+          return result;
       }
+    } catch (e) {
+      console.error(`[Douyin] 解析 ${method} 失败:`, e.message);
+      return result;
     }
-    
-    return numbers.slice(0, 5);
   }
 
-  /**
-   * 格式化消息用于显示
-   */
   formatMessage(parsedMessages) {
     if (!parsedMessages) return null;
 
-    // 如果是数组，格式化每条消息
     if (Array.isArray(parsedMessages)) {
       return parsedMessages.map(msg => this.formatSingleMessage(msg)).filter(Boolean).join('\n\n');
     }
@@ -668,9 +881,6 @@ class DouyinWSMessageParser {
     return this.formatSingleMessage(parsedMessages);
   }
 
-  /**
-   * 格式化单条消息
-   */
   formatSingleMessage(parsedMessage) {
     if (!parsedMessage) return null;
 
@@ -684,6 +894,9 @@ class DouyinWSMessageParser {
     switch (parsedMessage.messageType) {
       case '聊天消息':
         lines.push(`║ 用户: ${parsedMessage.user}`);
+        if (parsedMessage.level) {
+          lines.push(`║ 等级: ${parsedMessage.level}`);
+        }
         if (parsedMessage.content) {
           lines.push(`║ 内容: ${parsedMessage.content}`);
         }
@@ -692,18 +905,39 @@ class DouyinWSMessageParser {
       case '礼物消息':
         lines.push(`║ 用户: ${parsedMessage.user}`);
         lines.push(`║ 礼物: ${parsedMessage.giftName}`);
+        if (parsedMessage.giftCount) {
+          lines.push(`║ 数量: ${parsedMessage.giftCount}`);
+        }
+        if (parsedMessage.diamondCount) {
+          lines.push(`║ 价值: ${parsedMessage.diamondCount} 💎`);
+        }
         break;
 
       case '点赞消息':
         lines.push(`║ 用户: ${parsedMessage.user} ❤️`);
+        if (parsedMessage.count) {
+          lines.push(`║ 点赞数: ${parsedMessage.count}`);
+        }
         break;
 
       case '进入直播间':
         lines.push(`║ 用户: ${parsedMessage.user}`);
+        if (parsedMessage.memberCount) {
+          lines.push(`║ 当前人数: ${parsedMessage.memberCount}`);
+        }
         break;
 
       case '在线人数':
-        lines.push(`║ 在线人数: ${parsedMessage.onlineCount} 👥`);
+        lines.push(`║ 在线人数: ${parsedMessage.total} 👥`);
+        if (parsedMessage.totalUser) {
+          lines.push(`║ 累计观看: ${parsedMessage.totalUser}`);
+        }
+        break;
+
+      case '直播间统计':
+        if (parsedMessage.displayMiddle) {
+          lines.push(`║ 在线观众: ${parsedMessage.displayMiddle} 👥`);
+        }
         break;
 
       case '关注消息':
@@ -712,21 +946,13 @@ class DouyinWSMessageParser {
         break;
 
       default:
-        if (parsedMessage.user) {
-          lines.push(`║ 用户: ${parsedMessage.user}`);
-        }
-        if (parsedMessage.texts && parsedMessage.texts.length > 0) {
-          lines.push(`║ 提取信息: ${parsedMessage.texts.slice(0, 3).join(', ')}`);
-        }
+        lines.push(`║ 方法: ${parsedMessage.method}`);
     }
 
     lines.push(`╚${'═'.repeat(78)}╝`);
     return lines.join('\n');
   }
 
-  /**
-   * 获取统计信息
-   */
   getStatistics() {
     return {
       ...this.statistics,
@@ -734,9 +960,6 @@ class DouyinWSMessageParser {
     };
   }
 
-  /**
-   * 重置统计信息
-   */
   resetStatistics() {
     this.statistics = {
       totalMessages: 0,
@@ -748,9 +971,6 @@ class DouyinWSMessageParser {
     };
   }
 
-  /**
-   * 格式化统计信息
-   */
   formatStatistics() {
     const stats = this.getStatistics();
     const lines = [];
