@@ -196,6 +196,27 @@ function skipUnknownField(bb, type) {
     case 2: // Length-delimited
       advance(bb, readVarint32(bb));
       break;
+    case 3: // Start group (deprecated)
+      // Skip the entire group by reading until we find the matching end group
+      // This is a simplified approach - just skip to the end of the buffer
+      // In practice, we should match start_group (3) with end_group (4)
+      while (!isAtEnd(bb)) {
+        const tag = readVarint32(bb);
+        const wireType = tag & 7;
+        const fieldNumber = tag >>> 3;
+        
+        // If we find end_group with same field number, we're done
+        if (wireType === 4) {
+          break;
+        }
+        
+        // Otherwise, skip this field recursively
+        skipUnknownField(bb, wireType);
+      }
+      break;
+    case 4: // End group (deprecated)
+      // This shouldn't be called directly, but if it is, just return
+      break;
     case 5: // 32-bit
       advance(bb, 4);
       break;
