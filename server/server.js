@@ -10,6 +10,8 @@
 
 const WebSocket = require('ws');
 const douyinParser = require('./dy_ws_msg');
+const fs = require('fs');
+const path = require('path');
 
 // 创建WebSocket服务器，监听8080端口的/monitor路径
 const wss = new WebSocket.Server({ 
@@ -40,6 +42,149 @@ let messageCount = 0;
 let requestCount = 0;
 let websocketCount = 0;
 let douyinMessageCount = 0; // 抖音直播消息计数
+
+// 日志文件管理
+const logStreams = new Map(); // url -> { stream, roomId, hour }
+const logsDir = path.join(__dirname, 'logs');
+
+// 确保日志目录存在
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+  console.log(`📁 日志目录已创建: ${logsDir}`);
+}
+
+/**
+ * 从 WebSocket URL 中提取房间号
+ */
+function extractRoomId(url) {
+  if (!url) return 'unknown';
+  
+  // 从 URL 参数中提取 room_id
+  const match = url.match(/[?&]room_id=(\d+)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  
+  // 尝试从 wss_push_room_id 提取
+  const match2 = url.match(/wss_push_room_id:(\d+)/);
+  if (match2 && match2[1]) {
+    return match2[1];
+  }
+  
+  return 'unknown';
+}
+
+/**
+ * 获取或创建日志文件流
+ */
+function getLogStream(url) {
+  const roomId = extractRoomId(url);
+  const now = new Date();
+  
+  // 格式化日期和时间
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hour = String(now.getHours()).padStart(2, '0');
+  
+  const dateDir = `${year}-${month}-${day}`;
+  const fileName = `${hour}_${roomId}.log`;
+  
+  const key = `${dateDir}/${fileName}`;
+  
+  // 检查是否需要创建新的流
+  if (logStreams.has(key)) {
+    return logStreams.get(key);
+  }
+  
+  // 创建日期目录
+  const dateDirPath = path.join(logsDir, dateDir);
+  if (!fs.existsSync(dateDirPath)) {
+    fs.mkdirSync(dateDirPath, { recursive: true });
+  }
+  
+  // 创建文件流
+  const logFilePath = path.join(dateDirPath, fileName);
+  const stream = fs.createWriteStream(logFilePath, { flags: 'a', encoding: 'utf8' });
+  
+  const logInfo = {
+    stream: stream,
+    roomId: roomId,
+    hour: hour,
+    filePath: logFilePath
+  };
+  
+  logStreams.set(key, logInfo);
+  
+  // 写入文件头
+  stream.write(`\n${'='.repeat(80)}\n`);
+  stream.write(`日志文件创建时间: ${now.toISOString()}\n`);
+  stream.write(`房间ID: ${roomId}\n`);
+  stream.write(`WebSocket URL: ${url}\n`);
+  stream.write(`${'='.repeat(80)}\n\n`);
+  
+  console.log(`📝 创建新日志文件: ${key}`);
+  
+  return logInfo;
+}
+
+/**
+ * 写入日志到文件
+ */
+function writeLog(url, message) {
+  if (!url || !douyinParser.isDouyinLiveWS(url)) {
+    return; // 只记录抖音直播的日志
+  }
+  
+  try {
+    const logInfo = getLogStream(url);
+    const timestamp = new Date().toISOString();
+    
+    // 写入时间戳和消息
+    logInfo.stream.write(`[${timestamp}]\n${message}\n\n`);
+  } catch (error) {
+    console.error('写入日志失败:', error.message);
+  }
+}
+
+/**
+ * 关闭所有日志流
+ */
+function closeAllLogStreams() {
+  for (const [key, logInfo] of logStreams.entries()) {
+    try {
+      logInfo.stream.write(`\n${'='.repeat(80)}\n`);
+      logInfo.stream.write(`日志文件关闭时间: ${new Date().toISOString()}\n`);
+      logInfo.stream.write(`${'='.repeat(80)}\n`);
+      logInfo.stream.end();
+      console.log(`📝 关闭日志文件: ${key}`);
+    } catch (error) {
+      console.error(`关闭日志文件失败 (${key}):`, error.message);
+    }
+  }
+  logStreams.clear();
+}
+
+// 定期清理旧的日志流（每小时检查一次）
+setInterval(() => {
+  const currentHour = String(new Date().getHours()).padStart(2, '0');
+  
+  for (const [key, logInfo] of logStreams.entries()) {
+    // 如果日志流的小时与当前小时不同，关闭它
+    if (logInfo.hour !== currentHour) {
+      try {
+        logInfo.stream.write(`\n${'='.repeat(80)}\n`);
+        logInfo.stream.write(`日志文件自动关闭（小时切换）: ${new Date().toISOString()}\n`);
+        logInfo.stream.write(`${'='.repeat(80)}\n`);
+        logInfo.stream.end();
+        logStreams.delete(key);
+        console.log(`📝 自动关闭日志文件: ${key}`);
+      } catch (error) {
+        console.error(`关闭日志文件失败 (${key}):`, error.message);
+      }
+    }
+  }
+}, 3600000); // 每小时检查一次
 
 // 辅助函数：截断长字符串
 function truncate(str, maxLength = 500) {
@@ -189,6 +334,8 @@ wss.on('connection', (ws, req) => {
               if (formatted) {
                 console.log(formatted);
                 console.log('');
+                // 写入日志文件
+                writeLog(data.url, `📤 发送消息\n${formatted}`);
                 break;
               }
             }
@@ -222,6 +369,8 @@ wss.on('connection', (ws, req) => {
               if (formatted) {
                 console.log(formatted);
                 console.log('');
+                // 写入日志文件
+                writeLog(data.url, `📥 接收消息\n${formatted}`);
                 break;
               }
             }
@@ -362,13 +511,19 @@ process.on('SIGINT', () => {
     console.log(douyinParser.formatStatistics());
   }
   
+  console.log('');
+  console.log('📝 正在关闭日志文件...');
+  
+  // 关闭所有日志流
+  closeAllLogStreams();
+  
   // 关闭所有客户端连接
   wss.clients.forEach((client) => {
     client.close(1000, '服务器正在关闭');
   });
   
   wss.close(() => {
-    console.log('服务器已关闭');
+    console.log('✅ 服务器已关闭');
     process.exit(0);
   });
 });
