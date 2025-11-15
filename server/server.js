@@ -1,26 +1,12 @@
 /**
  * WebSocket服务器
- * 用于接收浏览器插件发送的URL监控数据
+ * 用于接收浏览器插件发送的URL和请求监控数据
  * 
  * 安装依赖：npm install
  * 运行服务器：npm start
  */
 
 const WebSocket = require('ws');
-const os = require('os');
-
-// 获取本机IP地址
-function getLocalIpAddress() {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
-      }
-    }
-  }
-  return 'localhost';
-}
 
 // 创建WebSocket服务器，监听8080端口的/monitor路径
 const wss = new WebSocket.Server({ 
@@ -28,44 +14,26 @@ const wss = new WebSocket.Server({
   path: '/monitor'
 });
 
-const localIp = getLocalIpAddress();
-
 console.log('='.repeat(60));
-console.log('✅ WebSocket服务器已成功启动');
-console.log('='.repeat(60));
-console.log('');
-console.log('📡 服务器信息:');
-console.log(`  - 端口: 8080`);
-console.log(`  - 路径: /monitor`);
-console.log('');
-console.log('🌐 连接地址:');
-console.log(`  - 本地: ws://localhost:8080/monitor`);
-console.log(`  - 局域网: ws://${localIp}:8080/monitor`);
-console.log('');
-console.log('💡 提示: 在浏览器插件中配置上述任一地址');
+console.log('WebSocket服务器已启动');
+console.log('地址: ws://localhost:8080/monitor');
 console.log('='.repeat(60));
 console.log('');
-console.log('⏳ 等待客户端连接...');
+console.log('监控内容:');
+console.log('  - 地址栏URL变化');
+console.log('  - 所有网络请求');
+console.log('');
+console.log('等待客户端连接...');
 console.log('');
 
 // 存储所有连接的客户端
 const clients = new Set();
+let messageCount = 0;
 
 wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress;
-  const clientPort = req.socket.remotePort;
-  const userAgent = req.headers['user-agent'] || '未知';
-  const origin = req.headers['origin'] || '未知';
-  
-  console.log('='.repeat(60));
-  console.log(`[${new Date().toISOString()}] 🎉 新客户端已连接`);
-  console.log('='.repeat(60));
-  console.log('客户端信息:');
-  console.log(`  - IP地址: ${clientIp}`);
-  console.log(`  - 端口: ${clientPort}`);
-  console.log(`  - User-Agent: ${userAgent.substring(0, 80)}...`);
-  console.log(`  - Origin: ${origin}`);
-  console.log(`  - 当前总连接数: ${wss.clients.size}`);
+  console.log(`[${new Date().toISOString()}] 新客户端已连接 (IP: ${clientIp})`);
+  console.log(`当前连接数: ${wss.clients.size}`);
   console.log('');
   
   clients.add(ws);
@@ -74,62 +42,59 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
-      console.log(`[${new Date().toISOString()}] 收到消息:`);
-      console.log(`  类型: ${data.type}`);
+      messageCount++;
       
       // 根据消息类型进行不同的处理
       switch (data.type) {
         case 'connection':
-          console.log(`  状态: ${data.status}`);
-          console.log('  ✅ 客户端连接确认');
+          console.log(`[${new Date().toISOString()}] ✅ 客户端连接确认`);
+          console.log('');
           break;
           
         case 'url_change':
-          console.log(`  标签页ID: ${data.tabId}`);
+          console.log(`[${new Date().toISOString()}] 🔄 地址栏URL变化`);
           console.log(`  URL: ${data.url}`);
           console.log(`  标题: ${data.title}`);
-          console.log('  🔄 URL已变化');
+          console.log(`  标签页: ${data.tabId}`);
+          console.log('');
           break;
           
-        case 'tab_created':
-          console.log(`  标签页ID: ${data.tabId}`);
-          console.log(`  URL: ${data.url || '(空)'}`);
-          console.log('  ➕ 创建了新标签页');
+        case 'request':
+          // 网络请求，只输出主请求，避免日志过多
+          if (data.resourceType === 'main_frame') {
+            console.log(`[${new Date().toISOString()}] 📡 网络请求 (主页面)`);
+            console.log(`  URL: ${data.url}`);
+            console.log(`  方法: ${data.method}`);
+            console.log(`  标签页: ${data.tabId}`);
+            console.log('');
+          }
+          // 子资源请求不打印，但已接收并可处理
           break;
           
-        case 'tab_closed':
-          console.log(`  标签页ID: ${data.tabId}`);
-          console.log('  ❌ 标签页已关闭');
-          break;
-          
-        case 'tab_activated':
-          console.log(`  标签页ID: ${data.tabId}`);
-          console.log(`  URL: ${data.url}`);
-          console.log(`  标题: ${data.title}`);
-          console.log('  👆 标签页已激活');
+        case 'request_completed':
+          // 请求完成，只输出主请求
+          if (data.resourceType === 'main_frame') {
+            console.log(`[${new Date().toISOString()}] ✅ 请求完成 (主页面)`);
+            console.log(`  URL: ${data.url}`);
+            console.log(`  状态码: ${data.statusCode}`);
+            console.log('');
+          }
           break;
           
         default:
-          console.log('  ⚠️  未知消息类型');
+          console.log(`[${new Date().toISOString()}] ⚠️  未知消息类型: ${data.type}`);
+          console.log('');
       }
       
-      console.log(`  时间戳: ${data.timestamp}`);
-      console.log('-'.repeat(60));
-      console.log('');
-      
-      // 可选：向客户端发送确认消息
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'ack',
-          originalType: data.type,
-          received: true,
-          timestamp: new Date().toISOString()
-        }));
+      // 每100条消息显示一次统计
+      if (messageCount % 100 === 0) {
+        console.log(`📊 已接收 ${messageCount} 条消息`);
+        console.log('');
       }
       
     } catch (error) {
       console.error(`[${new Date().toISOString()}] ❌ 解析消息失败:`, error.message);
-      console.log('原始消息:', message.toString());
+      console.log('原始消息:', message.toString().substring(0, 200));
       console.log('');
     }
   });
@@ -139,7 +104,6 @@ wss.on('connection', (ws, req) => {
     clients.delete(ws);
     console.log(`[${new Date().toISOString()}] 客户端已断开连接`);
     console.log(`  关闭代码: ${code}`);
-    console.log(`  关闭原因: ${reason || '(无)'}`);
     console.log(`  当前连接数: ${wss.clients.size}`);
     console.log('');
   });
@@ -151,18 +115,11 @@ wss.on('connection', (ws, req) => {
   });
 
   // 发送欢迎消息
-  try {
-    const welcomeMsg = {
-      type: 'welcome',
-      message: '欢迎连接到URL监控服务器',
-      timestamp: new Date().toISOString()
-    };
-    ws.send(JSON.stringify(welcomeMsg));
-    console.log(`[${new Date().toISOString()}] 📤 已发送欢迎消息`);
-    console.log('');
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] ❌ 发送欢迎消息失败:`, error.message);
-  }
+  ws.send(JSON.stringify({
+    type: 'welcome',
+    message: '欢迎连接到URL和请求监控服务器',
+    timestamp: new Date().toISOString()
+  }));
 });
 
 // 处理服务器错误
@@ -174,6 +131,7 @@ wss.on('error', (error) => {
 process.on('SIGINT', () => {
   console.log('');
   console.log('正在关闭服务器...');
+  console.log(`总共接收了 ${messageCount} 条消息`);
   
   // 关闭所有客户端连接
   wss.clients.forEach((client) => {

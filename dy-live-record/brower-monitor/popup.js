@@ -1,6 +1,7 @@
 // Popup script for configuration
 
 const serverUrlInput = document.getElementById('serverUrl');
+const filterKeywordsInput = document.getElementById('filterKeywords');
 const enableToggle = document.getElementById('enableToggle');
 const saveBtn = document.getElementById('saveBtn');
 const testBtn = document.getElementById('testBtn');
@@ -10,9 +11,10 @@ const messageDiv = document.getElementById('message');
 
 // 加载配置
 async function loadConfig() {
-  const result = await chrome.storage.local.get(['serverUrl', 'isEnabled']);
+  const result = await chrome.storage.local.get(['serverUrl', 'isEnabled', 'filterKeywords']);
   
   serverUrlInput.value = result.serverUrl || 'ws://localhost:8080/monitor';
+  filterKeywordsInput.value = result.filterKeywords || '';
   enableToggle.checked = result.isEnabled || false;
   
   updateStatus();
@@ -49,6 +51,7 @@ function showMessage(text, type = 'success') {
 // 保存配置
 async function saveConfig() {
   const serverUrl = serverUrlInput.value.trim();
+  const filterKeywords = filterKeywordsInput.value.trim();
   const isEnabled = enableToggle.checked;
   
   if (!serverUrl) {
@@ -66,6 +69,7 @@ async function saveConfig() {
     // 保存到存储
     await chrome.storage.local.set({
       serverUrl: serverUrl,
+      filterKeywords: filterKeywords,
       isEnabled: isEnabled
     });
     
@@ -73,10 +77,15 @@ async function saveConfig() {
     await chrome.runtime.sendMessage({
       action: 'updateConfig',
       serverUrl: serverUrl,
+      filterKeywords: filterKeywords,
       isEnabled: isEnabled
     });
     
-    showMessage('配置已保存', 'success');
+    let msg = '配置已保存';
+    if (filterKeywords) {
+      msg += ` (过滤: ${filterKeywords})`;
+    }
+    showMessage(msg, 'success');
     
     // 更新状态
     setTimeout(updateStatus, 500);

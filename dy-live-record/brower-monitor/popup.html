@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>URL & WebSocket Monitor</title>
+  <title>URL & Request Monitor</title>
   <style>
     * {
       margin: 0;
@@ -12,7 +12,7 @@
     }
 
     body {
-      width: 400px;
+      width: 450px;
       padding: 20px;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -104,6 +104,13 @@
     input[type="text"]:focus {
       outline: none;
       border-color: #667eea;
+    }
+
+    small {
+      display: block;
+      color: #666;
+      font-size: 11px;
+      margin-top: 4px;
     }
 
     .switch-container {
@@ -229,6 +236,7 @@
       border-radius: 4px;
       font-size: 12px;
       color: #555;
+      line-height: 1.6;
     }
   </style>
 </head>
@@ -236,9 +244,9 @@
   <div class="container">
     <h1>
       <span>🔍</span>
-      URL Monitor
+      URL & Request Monitor
     </h1>
-    <p class="subtitle">监控URL变化并发送到服务器</p>
+    <p class="subtitle">监控URL和所有网络请求</p>
 
     <div class="status">
       <span class="status-label">连接状态</span>
@@ -251,6 +259,12 @@
     <div class="form-group">
       <label for="serverUrl">WebSocket 服务器地址</label>
       <input type="text" id="serverUrl" placeholder="ws://localhost:8080/monitor">
+    </div>
+
+    <div class="form-group">
+      <label for="filterKeywords">过滤关键字（可选，逗号分隔）</label>
+      <input type="text" id="filterKeywords" placeholder="例如: live,video,stream">
+      <small>只发送包含关键字的请求。留空则发送所有请求。</small>
     </div>
 
     <div class="switch-container">
@@ -269,7 +283,10 @@
     <div class="message" id="message"></div>
 
     <div class="info-box">
-      💡 提示：插件将监控所有标签页的URL变化，并通过WebSocket实时发送到服务器
+      💡 提示：<br>
+      • 插件将监控所有URL和网络请求<br>
+      • 设置过滤关键字可减少发送的数据量<br>
+      • 所有请求都会打印到控制台日志
     </div>
   </div>
 

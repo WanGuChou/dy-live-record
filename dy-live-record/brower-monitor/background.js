@@ -1,135 +1,87 @@
-// Background Service Worker for URL and WebSocket Monitoring
+// Background Service Worker - 监控URL和所有网络请求
+// 包括WebSocket连接、刷新页面等所有场景
 
 let wsConnection = null;
 let serverUrl = '';
 let isEnabled = false;
+let filterKeywords = ''; // 过滤关键字，逗号分隔
 let reconnectInterval = null;
-
-// 调试日志函数
-function debugLog(message, data = null) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [URL Monitor] ${message}`);
-  if (data) {
-    console.log(data);
-  }
-}
+let requestCount = 0; // 请求计数
 
 // 从存储中加载配置
 async function loadConfig() {
-  debugLog('开始加载配置...');
-  const result = await chrome.storage.local.get(['serverUrl', 'isEnabled']);
+  const result = await chrome.storage.local.get(['serverUrl', 'isEnabled', 'filterKeywords']);
   serverUrl = result.serverUrl || 'ws://localhost:8080/monitor';
   isEnabled = result.isEnabled !== undefined ? result.isEnabled : false;
+  filterKeywords = result.filterKeywords || '';
   
-  debugLog('配置已加载:', {
-    serverUrl: serverUrl,
-    isEnabled: isEnabled,
-    wsState: wsConnection?.readyState
-  });
+  console.log('⚙️ 配置已加载:', { serverUrl, isEnabled, filterKeywords });
   
   if (isEnabled) {
-    debugLog('监控已启用，开始连接WebSocket...');
     connectWebSocket();
-  } else {
-    debugLog('监控未启用，跳过连接');
   }
+}
+
+// 检查URL是否匹配过滤关键字
+function matchesFilter(url) {
+  // 如果没有设置过滤关键字，全部发送
+  if (!filterKeywords || filterKeywords.trim() === '') {
+    return true;
+  }
+  
+  // 分割关键字并检查
+  const keywords = filterKeywords.split(',').map(k => k.trim()).filter(k => k !== '');
+  
+  // 只要匹配任一关键字就发送
+  return keywords.some(keyword => url.includes(keyword));
 }
 
 // 连接WebSocket
 function connectWebSocket() {
-  debugLog('connectWebSocket 被调用', {
-    serverUrl: serverUrl,
-    currentState: wsConnection?.readyState,
-    isEnabled: isEnabled
-  });
-  
-  if (!serverUrl) {
-    debugLog('❌ 错误：服务器URL为空，无法连接');
-    return;
-  }
-  
-  if (wsConnection?.readyState === WebSocket.OPEN) {
-    debugLog('⚠️ WebSocket已经连接，跳过重复连接');
-    return;
-  }
-  
-  if (wsConnection?.readyState === WebSocket.CONNECTING) {
-    debugLog('⚠️ WebSocket正在连接中，跳过重复连接');
+  if (!serverUrl || wsConnection?.readyState === WebSocket.OPEN) {
     return;
   }
 
   try {
-    debugLog('🔌 正在创建WebSocket连接...', { url: serverUrl });
+    console.log('🔌 正在连接WebSocket:', serverUrl);
     wsConnection = new WebSocket(serverUrl);
 
     wsConnection.onopen = () => {
-      debugLog('✅ WebSocket连接成功建立！', {
-        readyState: wsConnection.readyState,
-        url: serverUrl
-      });
-      
-      const connectionMsg = {
+      console.log('✅ WebSocket连接已建立');
+      sendMessage({
         type: 'connection',
         status: 'connected',
+        filterKeywords: filterKeywords,
         timestamp: new Date().toISOString()
-      };
+      });
       
-      debugLog('📤 发送连接确认消息:', connectionMsg);
-      sendMessage(connectionMsg);
-      
-      // 清除重连定时器
       if (reconnectInterval) {
-        debugLog('清除重连定时器');
         clearInterval(reconnectInterval);
         reconnectInterval = null;
       }
     };
 
     wsConnection.onmessage = (event) => {
-      debugLog('📥 收到服务器消息:', {
-        data: event.data,
-        type: event.type
-      });
-      
-      try {
-        const data = JSON.parse(event.data);
-        debugLog('解析后的消息:', data);
-      } catch (e) {
-        debugLog('消息不是JSON格式:', event.data);
-      }
+      console.log('📥 收到服务器消息:', event.data);
     };
 
     wsConnection.onerror = (error) => {
-      debugLog('❌ WebSocket错误:', {
-        error: error,
-        readyState: wsConnection?.readyState,
-        url: serverUrl
-      });
-      console.error('WebSocket详细错误:', error);
+      console.error('❌ WebSocket错误:', error);
     };
 
-    wsConnection.onclose = (event) => {
-      debugLog('🔌 WebSocket连接已关闭', {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-        url: serverUrl
-      });
-      
+    wsConnection.onclose = () => {
+      console.log('🔌 WebSocket连接已关闭');
       wsConnection = null;
       
-      // 如果启用状态，则尝试重连
       if (isEnabled && !reconnectInterval) {
-        debugLog('⏰ 设置5秒后自动重连');
         reconnectInterval = setInterval(() => {
-          debugLog('🔄 尝试重新连接WebSocket...');
+          console.log('🔄 尝试重新连接...');
           connectWebSocket();
         }, 5000);
       }
     };
   } catch (error) {
-    debugLog('❌ 创建WebSocket连接时发生异常:', error);
-    console.error('WebSocket连接异常详情:', error);
+    console.error('❌ WebSocket连接失败:', error);
   }
 }
 
@@ -148,40 +100,58 @@ function disconnectWebSocket() {
 
 // 发送消息到服务器
 function sendMessage(data) {
-  const state = wsConnection?.readyState;
-  const stateNames = {
-    0: 'CONNECTING',
-    1: 'OPEN',
-    2: 'CLOSING',
-    3: 'CLOSED'
-  };
-  
-  debugLog('尝试发送消息', {
-    messageType: data.type,
-    wsState: state !== undefined ? `${state} (${stateNames[state]})` : 'null',
-    isConnected: state === WebSocket.OPEN
-  });
-  
   if (wsConnection?.readyState === WebSocket.OPEN) {
     try {
-      const jsonData = JSON.stringify(data);
-      wsConnection.send(jsonData);
-      debugLog('✅ 消息发送成功:', data);
+      wsConnection.send(JSON.stringify(data));
     } catch (error) {
-      debugLog('❌ 发送消息时出错:', error);
-      console.error('发送消息失败详情:', error);
+      console.error('❌ 发送消息失败:', error);
     }
-  } else {
-    debugLog(`⚠️ WebSocket未连接，消息未发送 (状态: ${state !== undefined ? stateNames[state] : 'null'})`, data);
   }
 }
 
-// 监听标签页URL变化
+// emoji图标映射
+const emojiMap = {
+  'main_frame': '📄',
+  'sub_frame': '🖼️',
+  'stylesheet': '🎨',
+  'script': '📜',
+  'image': '🖼️',
+  'font': '🔤',
+  'xmlhttprequest': '🔗',
+  'fetch': '🔗',
+  'websocket': '🔌',
+  'webtransport': '🚄',
+  'media': '🎬',
+  'object': '📦',
+  'ping': '📡',
+  'csp_report': '🛡️',
+  'other': '📦'
+};
+
+// 打印请求日志
+function logRequest(type, url, details = {}) {
+  requestCount++;
+  const emoji = emojiMap[type] || '📦';
+  console.log(`${emoji} [${requestCount}] ${type}: ${url}`);
+  
+  // 打印额外信息
+  if (details.method) {
+    console.log(`  方法: ${details.method}`);
+  }
+  if (details.statusCode) {
+    console.log(`  状态码: ${details.statusCode}`);
+  }
+  if (details.tabId >= 0) {
+    console.log(`  标签页: ${details.tabId}`);
+  }
+}
+
+// ============ 监听地址栏URL变化 ============
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!isEnabled) return;
 
   if (changeInfo.url) {
-    const urlData = {
+    const data = {
       type: 'url_change',
       tabId: tabId,
       url: changeInfo.url,
@@ -189,66 +159,178 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       timestamp: new Date().toISOString()
     };
     
-    console.log('URL变化:', urlData);
-    sendMessage(urlData);
+    console.log('🌐 地址栏URL变化:', data.url);
+    
+    // 检查是否匹配过滤条件
+    if (matchesFilter(data.url)) {
+      console.log('  ✅ 匹配过滤条件，发送到服务器');
+      sendMessage(data);
+    } else {
+      console.log('  ⚠️ 不匹配过滤条件，跳过发送');
+    }
   }
 });
 
-// 监听新标签页创建
-chrome.tabs.onCreated.addListener((tab) => {
+// ============ 监听页面导航（捕获刷新等） ============
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (!isEnabled) return;
-
-  const tabData = {
-    type: 'tab_created',
-    tabId: tab.id,
-    url: tab.url || '',
-    timestamp: new Date().toISOString()
-  };
   
-  console.log('新标签页:', tabData);
-  sendMessage(tabData);
+  // frameId === 0 表示主框架（不是iframe）
+  if (details.frameId === 0) {
+    console.log('🔄 页面导航:', details.url);
+    console.log(`  标签页: ${details.tabId}, 时间戳: ${details.timeStamp}`);
+  }
 });
 
-// 监听标签页关闭
-chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+// ============ 监听页面提交（表单提交、刷新确认） ============
+chrome.webNavigation.onCommitted.addListener((details) => {
   if (!isEnabled) return;
-
-  const tabData = {
-    type: 'tab_closed',
-    tabId: tabId,
-    timestamp: new Date().toISOString()
-  };
   
-  console.log('标签页关闭:', tabData);
-  sendMessage(tabData);
-});
-
-// 监听标签页激活
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  if (!isEnabled) return;
-
-  try {
-    const tab = await chrome.tabs.get(activeInfo.tabId);
-    const tabData = {
-      type: 'tab_activated',
-      tabId: activeInfo.tabId,
-      url: tab.url || '',
-      title: tab.title || '',
+  if (details.frameId === 0) {
+    console.log(`🚀 页面已提交 [${details.transitionType}]:`, details.url);
+    
+    // transitionType可能是: reload, typed, link, auto_bookmark等
+    const data = {
+      type: 'navigation_committed',
+      tabId: details.tabId,
+      url: details.url,
+      transitionType: details.transitionType,
+      transitionQualifiers: details.transitionQualifiers,
       timestamp: new Date().toISOString()
     };
     
-    console.log('标签页激活:', tabData);
-    sendMessage(tabData);
-  } catch (error) {
-    console.error('获取标签页信息失败:', error);
+    if (matchesFilter(data.url)) {
+      sendMessage(data);
+    }
   }
 });
 
-// 监听来自popup的消息
+// ============ 监听所有网络请求发起 ============
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (!isEnabled) return;
+    
+    // 打印所有请求到控制台
+    logRequest(details.type, details.url, {
+      method: details.method,
+      tabId: details.tabId
+    });
+    
+    const data = {
+      type: 'request',
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method,
+      resourceType: details.type,
+      tabId: details.tabId,
+      frameId: details.frameId,
+      timestamp: new Date().toISOString()
+    };
+    
+    // 检查是否匹配过滤条件
+    if (matchesFilter(data.url)) {
+      console.log('  ✅ 发送');
+      sendMessage(data);
+    } else {
+      console.log('  ⚠️ 跳过');
+    }
+  },
+  { urls: ['<all_urls>'] }
+);
+
+// ============ 监听请求发送头部（捕获WebSocket升级） ============
+chrome.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (!isEnabled) return;
+    
+    // 检查是否是WebSocket升级请求
+    const headers = details.requestHeaders || [];
+    const upgradeHeader = headers.find(h => h.name.toLowerCase() === 'upgrade');
+    
+    if (upgradeHeader && upgradeHeader.value.toLowerCase() === 'websocket') {
+      console.log('🔌🔌 WebSocket升级请求:', details.url);
+      console.log(`  标签页: ${details.tabId}`);
+      
+      const data = {
+        type: 'websocket_upgrade',
+        requestId: details.requestId,
+        url: details.url,
+        method: details.method,
+        tabId: details.tabId,
+        timestamp: new Date().toISOString()
+      };
+      
+      if (matchesFilter(data.url)) {
+        console.log('  ✅ 发送WebSocket升级请求');
+        sendMessage(data);
+      }
+    }
+  },
+  { urls: ['<all_urls>'] },
+  ['requestHeaders']
+);
+
+// ============ 监听网络请求完成 ============
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    if (!isEnabled) return;
+    
+    const statusEmoji = details.statusCode >= 200 && details.statusCode < 300 ? '✅' : 
+                        details.statusCode >= 400 ? '❌' : '⚠️';
+    console.log(`${statusEmoji} 完成 [${details.statusCode}] ${details.type}: ${details.url}`);
+    
+    const data = {
+      type: 'request_completed',
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method,
+      statusCode: details.statusCode,
+      resourceType: details.type,
+      tabId: details.tabId,
+      timestamp: new Date().toISOString()
+    };
+    
+    // 检查是否匹配过滤条件
+    if (matchesFilter(data.url)) {
+      sendMessage(data);
+    }
+  },
+  { urls: ['<all_urls>'] }
+);
+
+// ============ 监听请求错误 ============
+chrome.webRequest.onErrorOccurred.addListener(
+  (details) => {
+    if (!isEnabled) return;
+    
+    console.log(`❌ 请求错误 [${details.error}]:`, details.url);
+    
+    const data = {
+      type: 'request_error',
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method,
+      error: details.error,
+      resourceType: details.type,
+      tabId: details.tabId,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (matchesFilter(data.url)) {
+      sendMessage(data);
+    }
+  },
+  { urls: ['<all_urls>'] }
+);
+
+// ============ 监听来自popup的消息 ============
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'updateConfig') {
     serverUrl = request.serverUrl;
     isEnabled = request.isEnabled;
+    filterKeywords = request.filterKeywords || '';
+    
+    console.log('⚙️ 配置已更新:', { serverUrl, isEnabled, filterKeywords });
     
     if (isEnabled) {
       connectWebSocket();
@@ -261,24 +343,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({
       isEnabled: isEnabled,
       isConnected: wsConnection?.readyState === WebSocket.OPEN,
-      serverUrl: serverUrl
+      serverUrl: serverUrl,
+      filterKeywords: filterKeywords,
+      requestCount: requestCount
     });
   }
   
   return true;
 });
 
-// 扩展安装或更新时
+// ============ 扩展安装或更新时 ============
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('扩展已安装/更新');
+  console.log('🔧 扩展已安装/更新');
+  requestCount = 0;
   loadConfig();
 });
 
-// 扩展启动时
+// ============ 扩展启动时 ============
 chrome.runtime.onStartup.addListener(() => {
-  console.log('扩展已启动');
+  console.log('🚀 扩展已启动');
+  requestCount = 0;
   loadConfig();
 });
 
-// 初始化
+// ============ Service Worker启动时 ============
+console.log('🎯 URL & Request Monitor 已初始化');
+console.log('📊 版本: 1.0.1');
+console.log('🔍 监控内容: 所有URL变化和网络请求（包括WebSocket）');
 loadConfig();
