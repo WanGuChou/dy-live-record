@@ -1,0 +1,24 @@
+{
+  "name": "brower-monitor-server",
+  "version": "1.0.0",
+  "description": "WebSocket测试服务器用于浏览器URL监控插件",
+  "main": "example-server.js",
+  "scripts": {
+    "start": "node example-server.js",
+    "dev": "nodemon example-server.js"
+  },
+  "keywords": [
+    "websocket",
+    "browser",
+    "monitor",
+    "url-tracking"
+  ],
+  "author": "DY Live Record Team",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
