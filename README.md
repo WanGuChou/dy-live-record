@@ -204,6 +204,7 @@ CDP Monitor 服务器已启动
 ### 核心文档 ⭐
 - **[CDP使用指南](./CDP_USAGE.md)** - 完整的使用说明和示例
 - **[CDP测试指南](./CDP_TEST.md)** - 详细的测试步骤和验证清单
+- **[隐藏调试横幅](./HIDE_DEBUGGER_BANNER.md)** - 如何隐藏"正在调试此浏览器"提示 ⭐
 
 ### 其他文档
 - **[插件文档](./dy-live-record/brower-monitor/README.md)** - 插件技术细节
@@ -227,6 +228,11 @@ v2.0版本需要 `debugger` 权限来使用CDP。
 - 浏览器会显示 "正在调试此浏览器"
 - **这是正常现象**，因为插件使用了Chrome DevTools Protocol
 - 不影响浏览器的正常使用
+
+**如何隐藏这个提示？**
+- 查看详细指南: [HIDE_DEBUGGER_BANNER.md](./HIDE_DEBUGGER_BANNER.md)
+- Windows用户: 双击运行 `dy-live-record/brower-monitor/START_CHROME.bat`
+- macOS/Linux用户: 运行 `./dy-live-record/brower-monitor/start-chrome.sh`
 
 ### 2. 性能影响
 
