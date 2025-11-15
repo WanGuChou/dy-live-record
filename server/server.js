@@ -7,6 +7,20 @@
  */
 
 const WebSocket = require('ws');
+const os = require('os');
+
+// 获取本机IP地址
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
 
 // 创建WebSocket服务器，监听8080端口的/monitor路径
 const wss = new WebSocket.Server({ 
@@ -14,10 +28,24 @@ const wss = new WebSocket.Server({
   path: '/monitor'
 });
 
+const localIp = getLocalIpAddress();
+
 console.log('='.repeat(60));
-console.log('WebSocket服务器已启动');
-console.log('地址: ws://localhost:8080/monitor');
+console.log('✅ WebSocket服务器已成功启动');
 console.log('='.repeat(60));
+console.log('');
+console.log('📡 服务器信息:');
+console.log(`  - 端口: 8080`);
+console.log(`  - 路径: /monitor`);
+console.log('');
+console.log('🌐 连接地址:');
+console.log(`  - 本地: ws://localhost:8080/monitor`);
+console.log(`  - 局域网: ws://${localIp}:8080/monitor`);
+console.log('');
+console.log('💡 提示: 在浏览器插件中配置上述任一地址');
+console.log('='.repeat(60));
+console.log('');
+console.log('⏳ 等待客户端连接...');
 console.log('');
 
 // 存储所有连接的客户端
@@ -25,8 +53,19 @@ const clients = new Set();
 
 wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress;
-  console.log(`[${new Date().toISOString()}] 新客户端已连接 (IP: ${clientIp})`);
-  console.log(`当前连接数: ${wss.clients.size}`);
+  const clientPort = req.socket.remotePort;
+  const userAgent = req.headers['user-agent'] || '未知';
+  const origin = req.headers['origin'] || '未知';
+  
+  console.log('='.repeat(60));
+  console.log(`[${new Date().toISOString()}] 🎉 新客户端已连接`);
+  console.log('='.repeat(60));
+  console.log('客户端信息:');
+  console.log(`  - IP地址: ${clientIp}`);
+  console.log(`  - 端口: ${clientPort}`);
+  console.log(`  - User-Agent: ${userAgent.substring(0, 80)}...`);
+  console.log(`  - Origin: ${origin}`);
+  console.log(`  - 当前总连接数: ${wss.clients.size}`);
   console.log('');
   
   clients.add(ws);
@@ -112,11 +151,18 @@ wss.on('connection', (ws, req) => {
   });
 
   // 发送欢迎消息
-  ws.send(JSON.stringify({
-    type: 'welcome',
-    message: '欢迎连接到URL监控服务器',
-    timestamp: new Date().toISOString()
-  }));
+  try {
+    const welcomeMsg = {
+      type: 'welcome',
+      message: '欢迎连接到URL监控服务器',
+      timestamp: new Date().toISOString()
+    };
+    ws.send(JSON.stringify(welcomeMsg));
+    console.log(`[${new Date().toISOString()}] 📤 已发送欢迎消息`);
+    console.log('');
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] ❌ 发送欢迎消息失败:`, error.message);
+  }
 });
 
 // 处理服务器错误

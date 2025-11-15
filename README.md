@@ -97,6 +97,32 @@ npm start
    - 用户行为分析
    - 网站访问统计
 
+## 调试和故障排查
+
+### 快速测试
+
+如果遇到连接问题，使用测试脚本快速验证服务器：
+
+```bash
+cd server
+node test-connection.js
+```
+
+### 详细日志
+
+- **浏览器插件**: 所有操作都有详细的带时间戳的日志
+  - Chrome: `chrome://extensions/` → 点击 "Service Worker"
+  - 日志格式: `[时间] [URL Monitor] 消息内容`
+
+- **服务器**: 显示客户端连接、消息接收等详细信息
+  - 包含客户端IP、User-Agent、Origin等信息
+
+### 文档
+
+- **快速调试**: [QUICK_DEBUG.md](./QUICK_DEBUG.md) - 5分钟快速排查 ⭐
+- **调试指南**: [DEBUG_GUIDE.md](./DEBUG_GUIDE.md) - 完整的调试步骤
+- **故障排查**: [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - 常见问题解决方案
+
 ## 安全说明
 
 - 插件需要访问所有网站的权限以监控URL变化
