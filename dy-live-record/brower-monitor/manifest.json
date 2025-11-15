@@ -1,12 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "URL & Request Monitor",
-  "version": "1.0.1",
-  "description": "监控所有URL和网络请求并通过WebSocket发送到服务器",
+  "name": "CDP Network & WebSocket Monitor",
+  "version": "2.0.0",
+  "description": "使用Chrome DevTools Protocol监控所有网络请求和WebSocket消息",
   "permissions": [
+    "debugger",
     "tabs",
-    "webRequest",
-    "webNavigation",
     "storage",
     "activeTab"
   ],

@@ -1,12 +1,15 @@
-// Background Service Worker - 监控URL和所有网络请求
-// 包括WebSocket连接、刷新页面等所有场景
+// Background Service Worker - 使用 Chrome DevTools Protocol
+// 监控所有网络请求和WebSocket消息
 
 let wsConnection = null;
 let serverUrl = '';
 let isEnabled = false;
-let filterKeywords = ''; // 过滤关键字，逗号分隔
+let filterKeywords = '';
 let reconnectInterval = null;
-let requestCount = 0; // 请求计数
+
+// 存储活跃的调试会话
+const activeTabs = new Map(); // tabId -> debuggee
+const websockets = new Map(); // requestId -> WebSocket info
 
 // 从存储中加载配置
 async function loadConfig() {
@@ -15,42 +18,39 @@ async function loadConfig() {
   isEnabled = result.isEnabled !== undefined ? result.isEnabled : false;
   filterKeywords = result.filterKeywords || '';
   
-  console.log('⚙️ 配置已加载:', { serverUrl, isEnabled, filterKeywords });
+  console.log('⚙️ CDP Monitor 配置已加载:', { serverUrl, isEnabled, filterKeywords });
   
   if (isEnabled) {
     connectWebSocket();
+    await attachToAllTabs();
   }
 }
 
 // 检查URL是否匹配过滤关键字
 function matchesFilter(url) {
-  // 如果没有设置过滤关键字，全部发送
   if (!filterKeywords || filterKeywords.trim() === '') {
     return true;
   }
-  
-  // 分割关键字并检查
   const keywords = filterKeywords.split(',').map(k => k.trim()).filter(k => k !== '');
-  
-  // 只要匹配任一关键字就发送
   return keywords.some(keyword => url.includes(keyword));
 }
 
-// 连接WebSocket
+// 连接到服务器的WebSocket
 function connectWebSocket() {
   if (!serverUrl || wsConnection?.readyState === WebSocket.OPEN) {
     return;
   }
 
   try {
-    console.log('🔌 正在连接WebSocket:', serverUrl);
+    console.log('🔌 正在连接WebSocket服务器:', serverUrl);
     wsConnection = new WebSocket(serverUrl);
 
     wsConnection.onopen = () => {
-      console.log('✅ WebSocket连接已建立');
+      console.log('✅ WebSocket服务器连接已建立');
       sendMessage({
         type: 'connection',
         status: 'connected',
+        method: 'CDP',
         filterKeywords: filterKeywords,
         timestamp: new Date().toISOString()
       });
@@ -66,22 +66,22 @@ function connectWebSocket() {
     };
 
     wsConnection.onerror = (error) => {
-      console.error('❌ WebSocket错误:', error);
+      console.error('❌ WebSocket服务器错误:', error);
     };
 
     wsConnection.onclose = () => {
-      console.log('🔌 WebSocket连接已关闭');
+      console.log('🔌 WebSocket服务器连接已关闭');
       wsConnection = null;
       
       if (isEnabled && !reconnectInterval) {
         reconnectInterval = setInterval(() => {
-          console.log('🔄 尝试重新连接...');
+          console.log('🔄 尝试重新连接服务器...');
           connectWebSocket();
         }, 5000);
       }
     };
   } catch (error) {
-    console.error('❌ WebSocket连接失败:', error);
+    console.error('❌ WebSocket服务器连接失败:', error);
   }
 }
 
@@ -104,238 +104,371 @@ function sendMessage(data) {
     try {
       wsConnection.send(JSON.stringify(data));
     } catch (error) {
-      console.error('❌ 发送消息失败:', error);
+      console.error('❌ 发送消息到服务器失败:', error);
     }
   }
 }
 
-// emoji图标映射
-const emojiMap = {
-  'main_frame': '📄',
-  'sub_frame': '🖼️',
-  'stylesheet': '🎨',
-  'script': '📜',
-  'image': '🖼️',
-  'font': '🔤',
-  'xmlhttprequest': '🔗',
-  'fetch': '🔗',
-  'websocket': '🔌',
-  'webtransport': '🚄',
-  'media': '🎬',
-  'object': '📦',
-  'ping': '📡',
-  'csp_report': '🛡️',
-  'other': '📦'
-};
+// 附加调试器到标签页
+async function attachDebugger(tabId) {
+  if (activeTabs.has(tabId)) {
+    console.log(`⚠️ 标签页 ${tabId} 已经附加调试器`);
+    return;
+  }
 
-// 打印请求日志
-function logRequest(type, url, details = {}) {
-  requestCount++;
-  const emoji = emojiMap[type] || '📦';
-  console.log(`${emoji} [${requestCount}] ${type}: ${url}`);
+  const debuggee = { tabId: tabId };
   
-  // 打印额外信息
-  if (details.method) {
-    console.log(`  方法: ${details.method}`);
-  }
-  if (details.statusCode) {
-    console.log(`  状态码: ${details.statusCode}`);
-  }
-  if (details.tabId >= 0) {
-    console.log(`  标签页: ${details.tabId}`);
+  try {
+    await chrome.debugger.attach(debuggee, '1.3');
+    console.log(`✅ 调试器已附加到标签页 ${tabId}`);
+    
+    // 启用 Network 域
+    await chrome.debugger.sendCommand(debuggee, 'Network.enable');
+    console.log(`📡 Network 已启用 (标签页 ${tabId})`);
+    
+    activeTabs.set(tabId, debuggee);
+  } catch (error) {
+    console.error(`❌ 附加调试器失败 (标签页 ${tabId}):`, error.message);
   }
 }
 
-// ============ 监听地址栏URL变化 ============
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!isEnabled) return;
+// 分离调试器
+async function detachDebugger(tabId) {
+  if (!activeTabs.has(tabId)) {
+    return;
+  }
 
-  if (changeInfo.url) {
+  const debuggee = activeTabs.get(tabId);
+  
+  try {
+    await chrome.debugger.detach(debuggee);
+    console.log(`🔓 调试器已从标签页 ${tabId} 分离`);
+  } catch (error) {
+    console.error(`❌ 分离调试器失败 (标签页 ${tabId}):`, error.message);
+  }
+  
+  activeTabs.delete(tabId);
+}
+
+// 附加到所有现有标签页
+async function attachToAllTabs() {
+  const tabs = await chrome.tabs.query({});
+  console.log(`🔍 发现 ${tabs.length} 个标签页`);
+  
+  for (const tab of tabs) {
+    // 过滤掉 chrome:// 和 edge:// 等特殊页面
+    if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://') && !tab.url.startsWith('chrome-extension://')) {
+      await attachDebugger(tab.id);
+    }
+  }
+}
+
+// 分离所有调试器
+async function detachAllDebuggers() {
+  console.log(`🔓 正在分离所有调试器...`);
+  const tabIds = Array.from(activeTabs.keys());
+  
+  for (const tabId of tabIds) {
+    await detachDebugger(tabId);
+  }
+}
+
+// ============ CDP 事件处理器 ============
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (!isEnabled) return;
+  
+  const tabId = source.tabId;
+  
+  // Network.requestWillBeSent - 请求即将发送
+  if (method === 'Network.requestWillBeSent') {
+    const request = params.request;
+    const requestId = params.requestId;
+    
+    console.log(`📤 [请求] ${request.method} ${request.url}`);
+    console.log(`   RequestID: ${requestId}, TabID: ${tabId}`);
+    
     const data = {
-      type: 'url_change',
+      type: 'cdp_request',
       tabId: tabId,
-      url: changeInfo.url,
-      title: tab.title || '',
+      requestId: requestId,
+      url: request.url,
+      method: request.method,
+      headers: request.headers,
+      postData: request.postData,
+      resourceType: params.type,
       timestamp: new Date().toISOString()
     };
     
-    console.log('🌐 地址栏URL变化:', data.url);
-    
-    // 检查是否匹配过滤条件
-    if (matchesFilter(data.url)) {
-      console.log('  ✅ 匹配过滤条件，发送到服务器');
+    if (matchesFilter(request.url)) {
       sendMessage(data);
-    } else {
-      console.log('  ⚠️ 不匹配过滤条件，跳过发送');
     }
   }
-});
-
-// ============ 监听页面导航（捕获刷新等） ============
-chrome.webNavigation.onBeforeNavigate.addListener((details) => {
-  if (!isEnabled) return;
   
-  // frameId === 0 表示主框架（不是iframe）
-  if (details.frameId === 0) {
-    console.log('🔄 页面导航:', details.url);
-    console.log(`  标签页: ${details.tabId}, 时间戳: ${details.timeStamp}`);
-  }
-});
-
-// ============ 监听页面提交（表单提交、刷新确认） ============
-chrome.webNavigation.onCommitted.addListener((details) => {
-  if (!isEnabled) return;
-  
-  if (details.frameId === 0) {
-    console.log(`🚀 页面已提交 [${details.transitionType}]:`, details.url);
+  // Network.responseReceived - 收到响应
+  else if (method === 'Network.responseReceived') {
+    const response = params.response;
+    const requestId = params.requestId;
     
-    // transitionType可能是: reload, typed, link, auto_bookmark等
+    console.log(`📥 [响应] ${response.status} ${response.url}`);
+    console.log(`   RequestID: ${requestId}`);
+    
     const data = {
-      type: 'navigation_committed',
-      tabId: details.tabId,
-      url: details.url,
-      transitionType: details.transitionType,
-      transitionQualifiers: details.transitionQualifiers,
+      type: 'cdp_response',
+      tabId: tabId,
+      requestId: requestId,
+      url: response.url,
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+      mimeType: response.mimeType,
+      resourceType: params.type,
       timestamp: new Date().toISOString()
     };
     
-    if (matchesFilter(data.url)) {
+    if (matchesFilter(response.url)) {
       sendMessage(data);
     }
   }
-});
-
-// ============ 监听所有网络请求发起 ============
-chrome.webRequest.onBeforeRequest.addListener(
-  (details) => {
-    if (!isEnabled) return;
+  
+  // Network.webSocketCreated - WebSocket 创建
+  else if (method === 'Network.webSocketCreated') {
+    const url = params.url;
+    const requestId = params.requestId;
     
-    // 打印所有请求到控制台
-    logRequest(details.type, details.url, {
-      method: details.method,
-      tabId: details.tabId
+    console.log(`🔌 [WebSocket 创建] ${url}`);
+    console.log(`   RequestID: ${requestId}, TabID: ${tabId}`);
+    
+    websockets.set(requestId, {
+      url: url,
+      tabId: tabId,
+      createdAt: new Date().toISOString()
     });
     
     const data = {
-      type: 'request',
-      requestId: details.requestId,
-      url: details.url,
-      method: details.method,
-      resourceType: details.type,
-      tabId: details.tabId,
-      frameId: details.frameId,
+      type: 'websocket_created',
+      tabId: tabId,
+      requestId: requestId,
+      url: url,
       timestamp: new Date().toISOString()
     };
     
-    // 检查是否匹配过滤条件
-    if (matchesFilter(data.url)) {
-      console.log('  ✅ 发送');
+    if (matchesFilter(url)) {
       sendMessage(data);
-    } else {
-      console.log('  ⚠️ 跳过');
     }
-  },
-  { urls: ['<all_urls>'] }
-);
+  }
+  
+  // Network.webSocketWillSendHandshakeRequest - WebSocket 握手请求
+  else if (method === 'Network.webSocketWillSendHandshakeRequest') {
+    const requestId = params.requestId;
+    const request = params.request;
+    
+    console.log(`🤝 [WebSocket 握手请求]`);
+    console.log(`   RequestID: ${requestId}`);
+    console.log(`   Headers:`, request.headers);
+    
+    const wsInfo = websockets.get(requestId);
+    const data = {
+      type: 'websocket_handshake_request',
+      tabId: tabId,
+      requestId: requestId,
+      url: wsInfo?.url,
+      headers: request.headers,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (!wsInfo || matchesFilter(wsInfo.url)) {
+      sendMessage(data);
+    }
+  }
+  
+  // Network.webSocketHandshakeResponseReceived - WebSocket 握手响应
+  else if (method === 'Network.webSocketHandshakeResponseReceived') {
+    const requestId = params.requestId;
+    const response = params.response;
+    
+    console.log(`✅ [WebSocket 握手响应]`);
+    console.log(`   RequestID: ${requestId}`);
+    console.log(`   Status: ${response.status}`);
+    
+    const wsInfo = websockets.get(requestId);
+    const data = {
+      type: 'websocket_handshake_response',
+      tabId: tabId,
+      requestId: requestId,
+      url: wsInfo?.url,
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (!wsInfo || matchesFilter(wsInfo.url)) {
+      sendMessage(data);
+    }
+  }
+  
+  // Network.webSocketFrameSent - WebSocket 发送消息
+  else if (method === 'Network.webSocketFrameSent') {
+    const requestId = params.requestId;
+    const frame = params.response;
+    
+    const wsInfo = websockets.get(requestId);
+    console.log(`📤 [WebSocket 发送] ${wsInfo?.url || requestId}`);
+    console.log(`   Opcode: ${frame.opcode}, PayloadData: ${frame.payloadData?.substring(0, 100)}`);
+    
+    const data = {
+      type: 'websocket_frame_sent',
+      tabId: tabId,
+      requestId: requestId,
+      url: wsInfo?.url,
+      opcode: frame.opcode,
+      mask: frame.mask,
+      payloadData: frame.payloadData,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (!wsInfo || matchesFilter(wsInfo.url)) {
+      sendMessage(data);
+    }
+  }
+  
+  // Network.webSocketFrameReceived - WebSocket 接收消息
+  else if (method === 'Network.webSocketFrameReceived') {
+    const requestId = params.requestId;
+    const frame = params.response;
+    
+    const wsInfo = websockets.get(requestId);
+    console.log(`📥 [WebSocket 接收] ${wsInfo?.url || requestId}`);
+    console.log(`   Opcode: ${frame.opcode}, PayloadData: ${frame.payloadData?.substring(0, 100)}`);
+    
+    const data = {
+      type: 'websocket_frame_received',
+      tabId: tabId,
+      requestId: requestId,
+      url: wsInfo?.url,
+      opcode: frame.opcode,
+      mask: frame.mask,
+      payloadData: frame.payloadData,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (!wsInfo || matchesFilter(wsInfo.url)) {
+      sendMessage(data);
+    }
+  }
+  
+  // Network.webSocketClosed - WebSocket 关闭
+  else if (method === 'Network.webSocketClosed') {
+    const requestId = params.requestId;
+    
+    const wsInfo = websockets.get(requestId);
+    console.log(`🔌 [WebSocket 关闭] ${wsInfo?.url || requestId}`);
+    console.log(`   RequestID: ${requestId}`);
+    
+    const data = {
+      type: 'websocket_closed',
+      tabId: tabId,
+      requestId: requestId,
+      url: wsInfo?.url,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (!wsInfo || matchesFilter(wsInfo.url)) {
+      sendMessage(data);
+    }
+    
+    websockets.delete(requestId);
+  }
+  
+  // Network.webSocketFrameError - WebSocket 错误
+  else if (method === 'Network.webSocketFrameError') {
+    const requestId = params.requestId;
+    const errorMessage = params.errorMessage;
+    
+    const wsInfo = websockets.get(requestId);
+    console.log(`❌ [WebSocket 错误] ${wsInfo?.url || requestId}`);
+    console.log(`   Error: ${errorMessage}`);
+    
+    const data = {
+      type: 'websocket_error',
+      tabId: tabId,
+      requestId: requestId,
+      url: wsInfo?.url,
+      errorMessage: errorMessage,
+      timestamp: new Date().toISOString()
+    };
+    
+    if (!wsInfo || matchesFilter(wsInfo.url)) {
+      sendMessage(data);
+    }
+  }
+});
 
-// ============ 监听请求发送头部（捕获WebSocket升级） ============
-chrome.webRequest.onBeforeSendHeaders.addListener(
-  (details) => {
-    if (!isEnabled) return;
-    
-    // 检查是否是WebSocket升级请求
-    const headers = details.requestHeaders || [];
-    const upgradeHeader = headers.find(h => h.name.toLowerCase() === 'upgrade');
-    
-    if (upgradeHeader && upgradeHeader.value.toLowerCase() === 'websocket') {
-      console.log('🔌🔌 WebSocket升级请求:', details.url);
-      console.log(`  标签页: ${details.tabId}`);
-      
-      const data = {
-        type: 'websocket_upgrade',
-        requestId: details.requestId,
-        url: details.url,
-        method: details.method,
-        tabId: details.tabId,
-        timestamp: new Date().toISOString()
-      };
-      
-      if (matchesFilter(data.url)) {
-        console.log('  ✅ 发送WebSocket升级请求');
-        sendMessage(data);
+// 监听调试器分离事件
+chrome.debugger.onDetach.addListener((source, reason) => {
+  const tabId = source.tabId;
+  console.log(`🔓 调试器已分离 (标签页 ${tabId}), 原因: ${reason}`);
+  activeTabs.delete(tabId);
+});
+
+// ============ 标签页事件监听 ============
+
+// 新标签页创建
+chrome.tabs.onCreated.addListener(async (tab) => {
+  if (!isEnabled) return;
+  
+  console.log(`📑 新标签页创建: ${tab.id}`);
+  
+  // 等待标签页加载
+  setTimeout(async () => {
+    if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://')) {
+      await attachDebugger(tab.id);
+    }
+  }, 500);
+});
+
+// 标签页更新
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!isEnabled) return;
+  
+  if (changeInfo.status === 'loading' && tab.url) {
+    if (!tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://') && !tab.url.startsWith('chrome-extension://')) {
+      if (!activeTabs.has(tabId)) {
+        await attachDebugger(tabId);
       }
     }
-  },
-  { urls: ['<all_urls>'] },
-  ['requestHeaders']
-);
+  }
+});
 
-// ============ 监听网络请求完成 ============
-chrome.webRequest.onCompleted.addListener(
-  (details) => {
-    if (!isEnabled) return;
-    
-    const statusEmoji = details.statusCode >= 200 && details.statusCode < 300 ? '✅' : 
-                        details.statusCode >= 400 ? '❌' : '⚠️';
-    console.log(`${statusEmoji} 完成 [${details.statusCode}] ${details.type}: ${details.url}`);
-    
-    const data = {
-      type: 'request_completed',
-      requestId: details.requestId,
-      url: details.url,
-      method: details.method,
-      statusCode: details.statusCode,
-      resourceType: details.type,
-      tabId: details.tabId,
-      timestamp: new Date().toISOString()
-    };
-    
-    // 检查是否匹配过滤条件
-    if (matchesFilter(data.url)) {
-      sendMessage(data);
-    }
-  },
-  { urls: ['<all_urls>'] }
-);
-
-// ============ 监听请求错误 ============
-chrome.webRequest.onErrorOccurred.addListener(
-  (details) => {
-    if (!isEnabled) return;
-    
-    console.log(`❌ 请求错误 [${details.error}]:`, details.url);
-    
-    const data = {
-      type: 'request_error',
-      requestId: details.requestId,
-      url: details.url,
-      method: details.method,
-      error: details.error,
-      resourceType: details.type,
-      tabId: details.tabId,
-      timestamp: new Date().toISOString()
-    };
-    
-    if (matchesFilter(data.url)) {
-      sendMessage(data);
-    }
-  },
-  { urls: ['<all_urls>'] }
-);
+// 标签页关闭
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  console.log(`📑 标签页关闭: ${tabId}`);
+  await detachDebugger(tabId);
+});
 
 // ============ 监听来自popup的消息 ============
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'updateConfig') {
     serverUrl = request.serverUrl;
+    const wasEnabled = isEnabled;
     isEnabled = request.isEnabled;
     filterKeywords = request.filterKeywords || '';
     
     console.log('⚙️ 配置已更新:', { serverUrl, isEnabled, filterKeywords });
     
-    if (isEnabled) {
+    if (isEnabled && !wasEnabled) {
+      // 从禁用变为启用
       connectWebSocket();
-    } else {
+      attachToAllTabs();
+    } else if (!isEnabled && wasEnabled) {
+      // 从启用变为禁用
       disconnectWebSocket();
+      detachAllDebuggers();
+    } else if (isEnabled) {
+      // 保持启用状态
+      connectWebSocket();
     }
     
     sendResponse({ success: true });
@@ -345,29 +478,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       isConnected: wsConnection?.readyState === WebSocket.OPEN,
       serverUrl: serverUrl,
       filterKeywords: filterKeywords,
-      requestCount: requestCount
+      activeTabs: activeTabs.size,
+      activeWebSockets: websockets.size
     });
   }
   
   return true;
 });
 
-// ============ 扩展安装或更新时 ============
+// ============ 扩展生命周期 ============
+
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('🔧 扩展已安装/更新');
-  requestCount = 0;
+  console.log('🔧 CDP Monitor 已安装/更新');
   loadConfig();
 });
 
-// ============ 扩展启动时 ============
 chrome.runtime.onStartup.addListener(() => {
-  console.log('🚀 扩展已启动');
-  requestCount = 0;
+  console.log('🚀 CDP Monitor 已启动');
   loadConfig();
 });
 
-// ============ Service Worker启动时 ============
-console.log('🎯 URL & Request Monitor 已初始化');
-console.log('📊 版本: 1.0.1');
-console.log('🔍 监控内容: 所有URL变化和网络请求（包括WebSocket）');
+// Service Worker 启动
+console.log('🎯 CDP Network & WebSocket Monitor 已初始化');
+console.log('📊 版本: 2.0.0');
+console.log('🔍 使用 Chrome DevTools Protocol 监控所有请求和WebSocket消息');
 loadConfig();
