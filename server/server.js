@@ -1,9 +1,9 @@
 /**
- * WebSocket服务器示例
- * 用于测试浏览器插件的连接和消息接收
+ * WebSocket服务器
+ * 用于接收浏览器插件发送的URL监控数据
  * 
- * 安装依赖：npm install ws
- * 运行服务器：node example-server.js
+ * 安装依赖：npm install
+ * 运行服务器：npm start
  */
 
 const WebSocket = require('ws');

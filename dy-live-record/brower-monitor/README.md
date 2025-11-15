@@ -130,9 +130,30 @@ brower-monitor/
 }
 ```
 
-## 服务器端示例
+## 服务器端
 
-### Node.js WebSocket服务器示例
+### Node.js WebSocket服务器
+
+本项目在根目录提供了完整的WebSocket服务器实现，位于 `../../server/` 目录。
+
+**启动服务器：**
+
+```bash
+# 进入服务器目录
+cd ../../server
+
+# 安装依赖
+npm install
+
+# 启动服务器
+npm start
+```
+
+服务器将在 `ws://localhost:8080/monitor` 上运行。
+
+详细文档请参考：[../../server/README.md](../../server/README.md)
+
+### 简单示例
 
 ```javascript
 const WebSocket = require('ws');
@@ -143,35 +164,8 @@ wss.on('connection', (ws) => {
   console.log('新客户端已连接');
 
   ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      console.log('收到消息:', data);
-      
-      // 处理不同类型的消息
-      switch (data.type) {
-        case 'connection':
-          console.log('客户端连接确认');
-          break;
-        case 'url_change':
-          console.log(`URL变化: ${data.url}`);
-          break;
-        case 'tab_created':
-          console.log(`新标签页: ${data.tabId}`);
-          break;
-        case 'tab_closed':
-          console.log(`关闭标签页: ${data.tabId}`);
-          break;
-        case 'tab_activated':
-          console.log(`激活标签页: ${data.tabId} - ${data.url}`);
-          break;
-      }
-    } catch (error) {
-      console.error('解析消息失败:', error);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log('客户端已断开');
+    const data = JSON.parse(message);
+    console.log('收到消息:', data);
   });
 });
 

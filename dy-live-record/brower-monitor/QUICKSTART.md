@@ -40,8 +40,8 @@
 打开终端，执行以下命令：
 
 ```bash
-# 进入插件目录
-cd dy-live-record/brower-monitor
+# 从项目根目录进入服务器目录
+cd server
 
 # 安装依赖
 npm install
@@ -163,7 +163,7 @@ Edge: edge://extensions/ → 找到插件 → 点击"检查视图"
 ## 📝 下一步
 
 - ✅ 了解更多消息类型：查看 [README.md](./README.md)
-- ✅ 自定义服务器逻辑：编辑 `example-server.js`
+- ✅ 自定义服务器逻辑：查看 [../../server/README.md](../../server/README.md)
 - ✅ 集成到现有项目：参考消息格式文档
 
 ## 💡 提示

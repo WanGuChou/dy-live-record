@@ -8,16 +8,20 @@
 
 ```
 dy-live-record/
-└── brower-monitor/          # Chrome/Edge 浏览器扩展插件
-    ├── manifest.json        # 扩展配置文件
-    ├── background.js        # 后台服务脚本
-    ├── popup.html          # 配置界面HTML
-    ├── popup.js            # 配置界面脚本
-    ├── example-server.js   # WebSocket测试服务器
-    ├── package.json        # Node.js依赖配置
-    ├── icons/              # 图标文件夹
-    │   └── README.md       # 图标说明
-    └── README.md           # 插件详细文档
+├── brower-monitor/          # Chrome/Edge 浏览器扩展插件
+│   ├── manifest.json        # 扩展配置文件
+│   ├── background.js        # 后台服务脚本
+│   ├── popup.html          # 配置界面HTML
+│   ├── popup.js            # 配置界面脚本
+│   ├── icons/              # 图标文件夹
+│   │   └── README.md       # 图标说明
+│   ├── README.md           # 插件详细文档
+│   └── QUICKSTART.md       # 快速入门指南
+└── server/                  # WebSocket服务器
+    ├── server.js            # 服务器主程序
+    ├── package.json         # Node.js依赖配置
+    ├── .gitignore          # Git忽略文件
+    └── README.md           # 服务器文档
 ```
 
 ## 快速开始
@@ -32,15 +36,17 @@ dy-live-record/
 3. 配置WebSocket服务器地址
 4. 启用监控
 
-### 2. 启动测试服务器
+### 2. 启动WebSocket服务器
 
 ```bash
-cd dy-live-record/brower-monitor
+cd server
 npm install
 npm start
 ```
 
 服务器将在 `ws://localhost:8080/monitor` 上运行
+
+详细文档请参考：[server/README.md](./server/README.md)
 
 ## 主要功能
 
@@ -67,9 +73,12 @@ npm start
 - **Chrome APIs** - tabs, storage, webRequest
 - **WebSocket** - 实时通信
 
-### 测试服务器
+### WebSocket服务器
 - **Node.js** - 运行环境
 - **ws** - WebSocket库
+- **支持多客户端并发连接**
+- **自动清理断开的连接**
+- **优雅关闭机制**
 
 ## 使用场景
 
