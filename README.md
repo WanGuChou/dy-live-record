@@ -8,9 +8,9 @@
 - ✅ WebSocket 发送和接收的所有消息内容
 - ✅ 请求和响应的完整头部信息
 
-**最新版本**: v2.0.0 🚀  
+**最新版本**: v2.1.0 🚀  
 **重大更新**: 使用 Chrome DevTools Protocol 实现深度监控  
-**新功能**: 🎬 抖音直播WebSocket消息自动解析 ⭐
+**新功能**: 🎬 抖音直播WebSocket消息自动解析（Protobuf + GZIP）⭐⭐⭐
 
 ---
 
@@ -209,7 +209,8 @@ CDP Monitor 服务器已启动
 - **[隐藏调试横幅](./HIDE_DEBUGGER_BANNER.md)** - 如何隐藏"正在调试此浏览器"提示
 
 ### 抖音直播相关 🎬
-- **[抖音解析详细说明](./server/README_DOUYIN.md)** - 消息类型和技术细节
+- **[抖音解析详细说明](./server/README_DOUYIN.md)** - 消息类型和功能说明
+- **[抖音解析技术文档](./DOUYIN_PARSER_TECH.md)** - Protobuf解析原理和实现细节
 
 ### 其他文档
 - **[插件文档](./dy-live-record/brower-monitor/README.md)** - 插件技术细节
@@ -404,7 +405,7 @@ MIT License
 
 ---
 
-**版本**: v2.0.0  
+**版本**: v2.1.0  
 **更新时间**: 2025-11-15  
-**技术栈**: Chrome DevTools Protocol 1.3, WebSocket, Node.js  
-**核心特性**: WebSocket消息完整捕获 🎯
+**技术栈**: Chrome DevTools Protocol 1.3, WebSocket, Node.js, Protobuf, GZIP  
+**核心特性**: WebSocket消息完整捕获 + 抖音直播消息解析 🎯🎬

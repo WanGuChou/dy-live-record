@@ -4,6 +4,8 @@
 
 服务器现在支持自动解析抖音直播的WebSocket消息，当监控到来自 `wss://webcast100-ws-web-hl.douyin.com` 的消息时，会自动解析并美化显示。
 
+**✨ v2.1 更新：完整的 Protobuf + GZIP 解析支持！**
+
 ---
 
 ## 🎯 支持的消息类型
@@ -17,16 +19,14 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║ 消息类型: 聊天消息
 ║ 时间: 2025-11-15T16:00:00.000Z
-║ 用户: 张三 [Lv.15]
+║ 用户: 张三
 ║ 内容: 主播好厉害！
-║ 徽章: 粉丝团, VIP
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
 **包含信息：**
-- 用户昵称和等级
+- 用户昵称
 - 聊天内容
-- 用户徽章
 
 ### 2. 礼物消息 (WebcastGiftMessage)
 
@@ -38,17 +38,13 @@
 ║ 消息类型: 礼物消息
 ║ 时间: 2025-11-15T16:00:00.000Z
 ║ 用户: 李四
-║ 礼物: 玫瑰花 x 10
-║ 价值: 100 💎
-║ 连击: 5
+║ 礼物: 玫瑰花
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
 **包含信息：**
 - 送礼用户
-- 礼物名称和数量
-- 礼物价值（钻石）
-- 连击次数
+- 礼物名称
 
 ### 3. 点赞消息 (WebcastLikeMessage)
 
@@ -59,8 +55,7 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║ 消息类型: 点赞消息
 ║ 时间: 2025-11-15T16:00:00.000Z
-║ 用户: 王五
-║ 点赞数: 100 ❤️
+║ 用户: 王五 ❤️
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -73,8 +68,7 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║ 消息类型: 进入直播间
 ║ 时间: 2025-11-15T16:00:00.000Z
-║ 用户: 赵六 [Lv.20]
-║ 当前人数: 1234
+║ 用户: 赵六
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -104,6 +98,15 @@
 ║ 动作: 关注了主播
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
+
+### 7. 其他消息类型
+
+- **WebcastFansclubMessage**: 粉丝团消息
+- **WebcastControlMessage**: 直播间控制
+- **WebcastEmojiChatMessage**: 表情消息
+- **WebcastRoomStatsMessage**: 直播间统计
+- **WebcastLinkMicBattle**: 连麦PK
+- **WebcastLinkMicArmies**: 连麦军团
 
 ---
 
@@ -135,6 +138,25 @@
 cd server
 npm install
 npm start
+```
+
+服务器启动时会显示：
+```
+================================================================================
+CDP Monitor 服务器已启动
+地址: ws://localhost:8080/monitor
+================================================================================
+
+监控内容:
+  ✅ 所有 HTTP/HTTPS 请求 (使用 Chrome DevTools Protocol)
+  ✅ WebSocket 连接创建
+  ✅ WebSocket 握手过程
+  ✅ WebSocket 发送的所有消息
+  ✅ WebSocket 接收的所有消息
+  ✅ WebSocket 连接关闭
+  🎬 抖音直播消息自动解析
+
+等待客户端连接...
 ```
 
 ### 2. 配置并启动插件
@@ -170,7 +192,8 @@ npm start
 ║ 🎬 抖音直播消息
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║ 消息类型: 聊天消息
-║ ...
+║ 用户: 用户名
+║ 内容: 聊天内容
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -180,19 +203,54 @@ npm start
 
 ### 消息格式
 
-抖音直播使用JSON格式传输消息（部分直播间可能使用Protobuf）。
+抖音直播使用 **Protobuf + GZIP 压缩**格式：
 
-**JSON格式示例：**
-```json
-{
-  "method": "WebcastChatMessage",
-  "user": {
-    "id": "123456",
-    "nickname": "张三",
-    "level": 15
-  },
-  "content": "主播好厉害！"
-}
+#### 1. 外层结构 (PushFrame)
+```
+PushFrame
+├── logId: uint64
+├── service: uint32
+├── method: string
+├── headers_list: Header[]
+│   └── Header
+│       ├── key: string (例如: "compress_type")
+│       └── value: string (例如: "gzip")
+└── payloadBinary: bytes (GZIP压缩的Response)
+```
+
+#### 2. GZIP解压
+
+检查 `headers_list` 中的 `compress_type`，如果为 `gzip`，使用 zlib 解压。
+
+#### 3. 内层结构 (Response)
+```
+Response (解压后)
+└── messagesList: Message[]
+    └── Message
+        ├── method: string (消息类型，如 "WebcastChatMessage")
+        └── payload: bytes (具体消息内容，Protobuf格式)
+```
+
+### 解析流程
+
+```
+Base64 WebSocket数据
+  ↓
+解析 PushFrame (Protobuf)
+  ↓
+提取 headers_list → compress_type
+  ↓
+GZIP 解压 payloadBinary
+  ↓
+解析 Response → messagesList
+  ↓
+遍历每条消息
+  ↓
+解析 method 和 payload
+  ↓
+根据 method 提取用户名、内容等
+  ↓
+格式化输出
 ```
 
 ### 检测逻辑
@@ -205,13 +263,18 @@ url.includes('webcast') &&
 url.includes('douyin.com')
 ```
 
-### 解析流程
+### 依赖项
 
-1. 接收WebSocket消息
-2. 检测URL是否为抖音直播
-3. 解析消息内容（JSON格式）
-4. 根据消息类型提取关键信息
-5. 格式化输出
+```json
+{
+  "dependencies": {
+    "ws": "^8.14.2",
+    "protobufjs": "^7.5.4"
+  }
+}
+```
+
+`protobufjs` 用于 Protobuf 解析（目前使用原生Buffer操作，未来可能使用完整的.proto定义）。
 
 ---
 
@@ -226,16 +289,45 @@ const douyinParser = require('./dy_ws_msg');
 const isDouyin = douyinParser.isDouyinLiveWS(url);
 
 if (isDouyin) {
-  // 解析消息
-  const parsed = douyinParser.parseMessage(payloadData, url);
+  // 解析消息（异步）
+  const parsed = await douyinParser.parseMessage(payloadData, url);
   
-  // 格式化输出
-  const formatted = douyinParser.formatMessage(parsed);
-  console.log(formatted);
+  if (parsed) {
+    // parsed 可能是数组（多条消息）或单条消息
+    const formatted = douyinParser.formatMessage(parsed);
+    console.log(formatted);
+  }
   
   // 获取统计信息
   const stats = douyinParser.getStatistics();
   console.log(stats);
+  
+  // 重置统计
+  // douyinParser.resetStatistics();
+}
+```
+
+### 核心API
+
+```javascript
+class DouyinWSMessageParser {
+  // 检测URL
+  isDouyinLiveWS(url): boolean
+  
+  // 解析消息（异步）
+  async parseMessage(payloadData, url): Promise<Object|Array|null>
+  
+  // 格式化消息
+  formatMessage(parsedMessage): string
+  
+  // 获取统计
+  getStatistics(): Object
+  
+  // 重置统计
+  resetStatistics(): void
+  
+  // 格式化统计
+  formatStatistics(): string
 }
 ```
 
@@ -243,53 +335,101 @@ if (isDouyin) {
 
 ## 🐛 故障排查
 
-### Q1: 消息没有被解析
-
-**检查：**
-1. 确认访问的是抖音直播间
-2. 查看服务器日志中是否有"抖音直播WebSocket"标记
-3. 检查WebSocket URL是否包含 `webcast` 和 `douyin.com`
-
-### Q2: 解析结果不完整
+### Q1: 显示"二进制消息（未完全解析）"
 
 **原因：**
-- 抖音可能使用Protobuf格式
-- 消息格式可能有变化
+- PushFrame 解析失败
+- GZIP 解压失败
+- Response 结构异常
 
 **解决：**
-- 查看原始消息内容
-- 如果是Protobuf，需要.proto文件进行完整解析
+1. 检查服务器日志中是否有错误信息
+2. 确认 `protobufjs` 已正确安装：`npm install protobufjs`
+3. 查看原始消息内容是否为base64编码
+4. 检查是否为真正的抖音直播WebSocket（URL包含 `webcast` 和 `douyin.com`）
 
-### Q3: 统计信息不准确
+### Q2: 消息没有被解析
+
+**检查：**
+1. 确认访问的是抖音直播间（URL: `https://live.douyin.com/xxx`）
+2. 查看服务器日志中是否有"抖音直播WebSocket"标记
+3. 检查WebSocket URL：必须是 `wss://webcast100-ws-web-hl.douyin.com/...`
+4. 确认插件已启用监控
+
+### Q3: 解析结果不完整（只有"提取文本"）
+
+**原因：**
+- Protobuf payload 中的字段结构未知
+- 使用了启发式文本提取（fallback方案）
+
+**当前解决方案：**
+- 当前使用正则表达式从二进制数据中提取可读文本
+- 可以捕获用户名、消息内容等关键信息
+
+**未来改进：**
+- 需要完整的 `.proto` 定义文件进行精确解析
+- 参考 dycast 项目的 protobuf 定义
+
+### Q4: 统计信息不准确
 
 **原因：**
 - 某些消息类型未被识别
-- 消息格式不标准
+- 消息格式可能有变化
 
 **解决：**
 - 查看日志中的"未知消息类型"
-- 可能需要更新解析器以支持新格式
+- 检查 `method` 字段是否为新的消息类型
+- 如果是新类型，可以在 `dy_ws_msg.js` 中添加支持
+
+### Q5: GZIP解压失败
+
+**现象：**
+```
+解析消息失败: incorrect header check
+```
+
+**原因：**
+- 数据不是GZIP格式
+- `compress_type` 读取错误
+
+**解决：**
+代码已包含fallback逻辑，会继续尝试解析原始数据。
 
 ---
 
 ## 🔮 未来改进
 
-### 计划支持
+### 已实现 ✅
 
-- [ ] Protobuf 格式完整解析
-- [ ] 更多消息类型（弹幕特效、主播通知等）
+- [x] Protobuf 格式解析（PushFrame, Response, Message）
+- [x] GZIP 解压支持
+- [x] 多种消息类型识别（Chat, Gift, Like, Member, Social, RoomUserSeq）
+- [x] 启发式文本提取
+- [x] 实时统计信息
+
+### 计划支持 📋
+
+- [ ] 完整的 `.proto` 定义文件加载
+- [ ] 更精确的字段解析（等级、徽章、礼物价值、连击数）
+- [ ] 更多消息类型（弹幕特效、主播通知、PK战等）
 - [ ] 礼物价值统计（总钻石数）
-- [ ] 高频用户统计
+- [ ] 高频用户统计（活跃度排行）
+- [ ] 消息持久化（数据库或文件）
 - [ ] 消息导出功能（CSV/JSON）
-- [ ] 实时数据可视化
+- [ ] 实时数据可视化（Web Dashboard）
+- [ ] 消息过滤和搜索
+- [ ] 性能优化（Buffer池、解析缓存）
 
 ---
 
 ## 📚 相关资源
 
 - **参考项目**: https://github.com/skmcj/dycast
-- **抖音直播协议**: 基于WebSocket + JSON/Protobuf
-- **CDP Monitor**: [../CDP_USAGE.md](../CDP_USAGE.md)
+- **技术文档**: [DOUYIN_PARSER_TECH.md](../DOUYIN_PARSER_TECH.md) - 详细的解析技术文档
+- **快速开始**: [DOUYIN_QUICK_START.md](../DOUYIN_QUICK_START.md) - 5分钟快速开始指南
+- **CDP Monitor**: [CDP_USAGE.md](../CDP_USAGE.md) - CDP监控使用文档
+- **Protobuf 文档**: https://protobuf.dev/
+- **Protobuf Encoding**: https://protobuf.dev/programming-guides/encoding/
 
 ---
 
@@ -298,11 +438,12 @@ if (isDouyin) {
 欢迎提交Issue和PR来：
 - 支持更多消息类型
 - 改进解析准确性
+- 提供完整的 `.proto` 定义
 - 优化性能
 - 添加新功能
 
 ---
 
 **更新时间**: 2025-11-15  
-**版本**: v2.0.0  
-**支持协议**: WebSocket + JSON (部分Protobuf)
+**版本**: v2.1.0  
+**支持协议**: WebSocket + Protobuf + GZIP

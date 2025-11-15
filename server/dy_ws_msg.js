@@ -3,15 +3,14 @@
  * 参考: https://github.com/skmcj/dycast
  * 
  * 解析来自 wss://webcast100-ws-web-hl.douyin.com 的消息
- * 支持的消息类型：
- * - WebcastChatMessage: 聊天消息
- * - WebcastGiftMessage: 礼物消息  
- * - WebcastLikeMessage: 点赞消息
- * - WebcastMemberMessage: 用户进入直播间
- * - WebcastSocialMessage: 关注消息
- * - WebcastRoomUserSeqMessage: 在线人数更新
- * - WebcastFansclubMessage: 粉丝团消息
+ * 支持 Protobuf + GZIP 压缩格式
  */
+
+const zlib = require('zlib');
+const { promisify } = require('util');
+
+const gunzip = promisify(zlib.gunzip);
+const inflate = promisify(zlib.inflate);
 
 class DouyinWSMessageParser {
   constructor() {
@@ -48,172 +47,498 @@ class DouyinWSMessageParser {
   isDouyinLiveWS(url) {
     if (!url) return false;
     return url.includes('webcast') && 
-           url.includes('douyin.com') &&
-           (url.includes('/webcast/') || url.includes('ws-web'));
+           url.includes('douyin.com');
   }
 
   /**
    * 解析 WebSocket 消息
-   * @param {string} payloadData - WebSocket消息内容
+   * @param {string} payloadData - WebSocket消息内容（可能是base64）
    * @param {string} url - WebSocket URL
    * @returns {Object|null} 解析后的消息对象
    */
-  parseMessage(payloadData, url = '') {
+  async parseMessage(payloadData, url = '') {
     if (!payloadData) return null;
     
     try {
-      // 尝试解析为JSON
-      const message = JSON.parse(payloadData);
-      this.statistics.totalMessages++;
-
-      // 检查是否为抖音直播消息格式
-      if (message.method || message.payload) {
-        return this.parseDouyinMessage(message);
+      // 将payload转为Buffer
+      let buffer;
+      if (typeof payloadData === 'string') {
+        // 尝试base64解码
+        try {
+          buffer = Buffer.from(payloadData, 'base64');
+        } catch (e) {
+          buffer = Buffer.from(payloadData);
+        }
+      } else {
+        buffer = Buffer.from(payloadData);
       }
 
-      return null;
+      // 解析外层 PushFrame
+      const pushFrame = this.parsePushFrame(buffer);
+      if (!pushFrame) {
+        return null;
+      }
+
+      // 解析内层 Response
+      const response = await this.parseResponse(pushFrame);
+      if (!response) {
+        return null;
+      }
+
+      // 解析具体消息
+      return this.parseMessages(response);
     } catch (e) {
-      // 如果不是JSON，可能是protobuf或其他二进制格式
-      // 抖音直播使用protobuf，这里做简单的文本提取
-      return this.parseBinaryMessage(payloadData);
+      console.error('解析消息失败:', e.message);
+      return null;
     }
   }
 
   /**
-   * 解析抖音消息（JSON格式）
+   * 解析 PushFrame（外层结构）
    */
-  parseDouyinMessage(message) {
-    const result = {
-      type: 'douyin_live',
-      timestamp: new Date().toISOString(),
-      parsed: true
-    };
+  parsePushFrame(buffer) {
+    try {
+      let offset = 0;
+      const frame = {};
 
-    // WebcastChatMessage - 聊天消息
-    if (message.method === 'WebcastChatMessage' || message.type === 'chat') {
-      this.statistics.chatCount++;
-      return {
-        ...result,
-        messageType: '聊天消息',
-        user: message.user?.nickname || message.nickname || '匿名用户',
-        userId: message.user?.id || message.userId,
-        content: message.content || message.text || '',
-        userLevel: message.user?.level,
-        userBadges: message.user?.badges || []
-      };
+      while (offset < buffer.length) {
+        // 读取字段类型和编号
+        const tag = buffer[offset++];
+        if (!tag) break;
+
+        const wireType = tag & 0x07;
+        const fieldNumber = tag >> 3;
+
+        if (wireType === 2) { // Length-delimited
+          const length = this.readVarint(buffer, offset);
+          offset += this.varintSize(length);
+
+          const value = buffer.slice(offset, offset + length);
+          offset += length;
+
+          // 字段映射
+          if (fieldNumber === 1) {
+            frame.logId = value.readBigUInt64LE ? value.readBigUInt64LE(0) : 0;
+          } else if (fieldNumber === 2) {
+            frame.service = value.readUInt32LE(0);
+          } else if (fieldNumber === 3) {
+            frame.method = value.toString('utf8');
+          } else if (fieldNumber === 4) {
+            // 这是重要的 headers_list
+            frame.headersList = this.parseHeadersList(value);
+          } else if (fieldNumber === 5) {
+            // 这是 payload（压缩的Response）
+            frame.payloadBinary = value;
+          }
+        } else if (wireType === 0) { // Varint
+          const value = this.readVarint(buffer, offset);
+          offset += this.varintSize(value);
+          
+          if (fieldNumber === 2) {
+            frame.service = value;
+          }
+        } else {
+          // 跳过未知字段
+          break;
+        }
+      }
+
+      return frame;
+    } catch (e) {
+      console.error('解析PushFrame失败:', e.message);
+      return null;
     }
-
-    // WebcastGiftMessage - 礼物消息
-    if (message.method === 'WebcastGiftMessage' || message.type === 'gift') {
-      this.statistics.giftCount++;
-      return {
-        ...result,
-        messageType: '礼物消息',
-        user: message.user?.nickname || '匿名用户',
-        userId: message.user?.id,
-        giftName: message.gift?.name || message.giftName || '未知礼物',
-        giftId: message.gift?.id || message.giftId,
-        giftCount: message.giftCount || message.count || 1,
-        giftValue: message.gift?.diamondCount || 0,
-        totalValue: (message.giftCount || 1) * (message.gift?.diamondCount || 0),
-        comboCount: message.comboCount || 0,
-        giftIcon: message.gift?.image?.urlList?.[0]
-      };
-    }
-
-    // WebcastLikeMessage - 点赞消息
-    if (message.method === 'WebcastLikeMessage' || message.type === 'like') {
-      this.statistics.likeCount++;
-      return {
-        ...result,
-        messageType: '点赞消息',
-        user: message.user?.nickname || '匿名用户',
-        userId: message.user?.id,
-        likeCount: message.count || 1,
-        totalLikes: message.total || 0
-      };
-    }
-
-    // WebcastMemberMessage - 用户进入
-    if (message.method === 'WebcastMemberMessage' || message.type === 'member') {
-      this.statistics.memberCount++;
-      return {
-        ...result,
-        messageType: '进入直播间',
-        user: message.user?.nickname || '匿名用户',
-        userId: message.user?.id,
-        userLevel: message.user?.level,
-        memberCount: message.memberCount || 0
-      };
-    }
-
-    // WebcastSocialMessage - 关注消息
-    if (message.method === 'WebcastSocialMessage' || message.type === 'social') {
-      return {
-        ...result,
-        messageType: '关注消息',
-        user: message.user?.nickname || '匿名用户',
-        userId: message.user?.id,
-        action: message.action || 'follow'
-      };
-    }
-
-    // WebcastRoomUserSeqMessage - 在线人数
-    if (message.method === 'WebcastRoomUserSeqMessage' || message.type === 'room_user_seq') {
-      this.statistics.onlineUsers = message.total || message.onlineUserCount || 0;
-      return {
-        ...result,
-        messageType: '在线人数',
-        onlineCount: this.statistics.onlineUsers,
-        totalUsers: message.totalUser || 0
-      };
-    }
-
-    // WebcastFansclubMessage - 粉丝团消息
-    if (message.method === 'WebcastFansclubMessage' || message.type === 'fansclub') {
-      return {
-        ...result,
-        messageType: '粉丝团消息',
-        user: message.user?.nickname || '匿名用户',
-        content: message.content || '',
-        fanLevel: message.fanTicket?.level || 0
-      };
-    }
-
-    // 其他消息类型
-    return {
-      ...result,
-      messageType: message.method || message.type || '未知消息',
-      rawData: message
-    };
   }
 
   /**
-   * 解析二进制消息（Protobuf）
-   * 抖音使用protobuf，这里做简单的文本提取
+   * 解析 headers_list
    */
-  parseBinaryMessage(payloadData) {
-    // 尝试从二进制数据中提取可读文本
-    const textMatches = payloadData.match(/[\u4e00-\u9fa5a-zA-Z0-9]+/g);
-    
-    if (textMatches && textMatches.length > 0) {
-      return {
-        type: 'douyin_live',
-        messageType: '二进制消息（未完全解析）',
-        timestamp: new Date().toISOString(),
-        parsed: false,
-        extractedText: textMatches.slice(0, 10).join(' '),
-        rawLength: payloadData.length
-      };
+  parseHeadersList(buffer) {
+    const headers = {};
+    let offset = 0;
+
+    while (offset < buffer.length) {
+      const tag = buffer[offset++];
+      if (!tag) break;
+
+      const wireType = tag & 0x07;
+      const fieldNumber = tag >> 3;
+
+      if (wireType === 2 && fieldNumber === 3) {
+        const length = this.readVarint(buffer, offset);
+        offset += this.varintSize(length);
+
+        const headerData = buffer.slice(offset, offset + length);
+        offset += length;
+
+        // 解析单个header
+        const header = this.parseHeader(headerData);
+        if (header && header.key) {
+          headers[header.key] = header.value;
+        }
+      } else {
+        break;
+      }
+    }
+
+    return headers;
+  }
+
+  /**
+   * 解析单个 header
+   */
+  parseHeader(buffer) {
+    const header = {};
+    let offset = 0;
+
+    while (offset < buffer.length) {
+      const tag = buffer[offset++];
+      if (!tag) break;
+
+      const wireType = tag & 0x07;
+      const fieldNumber = tag >> 3;
+
+      if (wireType === 2) {
+        const length = this.readVarint(buffer, offset);
+        offset += this.varintSize(length);
+
+        const value = buffer.slice(offset, offset + length);
+        offset += length;
+
+        if (fieldNumber === 1) {
+          header.key = value.toString('utf8');
+        } else if (fieldNumber === 2) {
+          header.value = value.toString('utf8');
+        }
+      } else {
+        break;
+      }
+    }
+
+    return header;
+  }
+
+  /**
+   * 解析 Response（解压后的内层结构）
+   */
+  async parseResponse(frame) {
+    try {
+      if (!frame.payloadBinary) return null;
+
+      // 检查是否需要解压
+      const compressType = frame.headersList?.['compress_type'];
+      let payload = frame.payloadBinary;
+
+      if (compressType === 'gzip') {
+        try {
+          payload = await gunzip(payload);
+        } catch (e) {
+          console.error('GZIP解压失败:', e.message);
+          return null;
+        }
+      }
+
+      // 解析Response结构
+      const response = {};
+      let offset = 0;
+
+      while (offset < payload.length) {
+        const tag = payload[offset++];
+        if (!tag) break;
+
+        const wireType = tag & 0x07;
+        const fieldNumber = tag >> 3;
+
+        if (wireType === 2) {
+          const length = this.readVarint(payload, offset);
+          offset += this.varintSize(length);
+
+          const value = payload.slice(offset, offset + length);
+          offset += length;
+
+          if (fieldNumber === 1) {
+            // messages_list
+            if (!response.messagesList) {
+              response.messagesList = [];
+            }
+            response.messagesList.push(value);
+          }
+        } else if (wireType === 0) {
+          const value = this.readVarint(payload, offset);
+          offset += this.varintSize(value);
+        } else {
+          break;
+        }
+      }
+
+      return response;
+    } catch (e) {
+      console.error('解析Response失败:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * 解析具体消息列表
+   */
+  parseMessages(response) {
+    if (!response.messagesList || response.messagesList.length === 0) {
+      return null;
+    }
+
+    const results = [];
+
+    for (const msgBuffer of response.messagesList) {
+      try {
+        const message = this.parseMessage_inner(msgBuffer);
+        if (message) {
+          results.push(message);
+        }
+      } catch (e) {
+        console.error('解析单条消息失败:', e.message);
+      }
+    }
+
+    return results.length > 0 ? results : null;
+  }
+
+  /**
+   * 解析单条消息
+   */
+  parseMessage_inner(buffer) {
+    const message = {};
+    let offset = 0;
+
+    while (offset < buffer.length) {
+      const tag = buffer[offset++];
+      if (!tag) break;
+
+      const wireType = tag & 0x07;
+      const fieldNumber = tag >> 3;
+
+      if (wireType === 2) {
+        const length = this.readVarint(buffer, offset);
+        offset += this.varintSize(length);
+
+        const value = buffer.slice(offset, offset + length);
+        offset += length;
+
+        if (fieldNumber === 1) {
+          // method 字段
+          message.method = value.toString('utf8');
+        } else if (fieldNumber === 2) {
+          // payload 字段（具体消息内容）
+          message.payload = value;
+        }
+      } else if (wireType === 0) {
+        const value = this.readVarint(buffer, offset);
+        offset += this.varintSize(value);
+      } else {
+        break;
+      }
+    }
+
+    // 根据method解析payload
+    if (message.method && message.payload) {
+      return this.parseMessagePayload(message.method, message.payload);
     }
 
     return null;
   }
 
   /**
+   * 根据消息类型解析payload
+   */
+  parseMessagePayload(method, payload) {
+    this.statistics.totalMessages++;
+
+    const result = {
+      type: 'douyin_live',
+      messageType: this.messageTypes[method] || method,
+      method: method,
+      timestamp: new Date().toISOString(),
+      parsed: true
+    };
+
+    try {
+      // 提取文本信息
+      const texts = this.extractTexts(payload);
+
+      // 根据不同消息类型提取特定字段
+      if (method === 'WebcastChatMessage') {
+        this.statistics.chatCount++;
+        return {
+          ...result,
+          messageType: '聊天消息',
+          user: texts[0] || '匿名用户',
+          content: texts[1] || texts[texts.length - 1] || '',
+          allTexts: texts
+        };
+      }
+
+      if (method === 'WebcastGiftMessage') {
+        this.statistics.giftCount++;
+        return {
+          ...result,
+          messageType: '礼物消息',
+          user: texts[0] || '匿名用户',
+          giftName: texts.find(t => t.includes('礼物') || t.length < 10) || texts[1] || '未知礼物',
+          allTexts: texts
+        };
+      }
+
+      if (method === 'WebcastLikeMessage') {
+        this.statistics.likeCount++;
+        return {
+          ...result,
+          messageType: '点赞消息',
+          user: texts[0] || '匿名用户',
+          allTexts: texts
+        };
+      }
+
+      if (method === 'WebcastMemberMessage') {
+        this.statistics.memberCount++;
+        return {
+          ...result,
+          messageType: '进入直播间',
+          user: texts[0] || '匿名用户',
+          allTexts: texts
+        };
+      }
+
+      if (method === 'WebcastRoomUserSeqMessage') {
+        // 尝试提取在线人数
+        const numbers = this.extractNumbers(payload);
+        if (numbers.length > 0) {
+          this.statistics.onlineUsers = numbers[0];
+        }
+        return {
+          ...result,
+          messageType: '在线人数',
+          onlineCount: this.statistics.onlineUsers,
+          numbers: numbers
+        };
+      }
+
+      if (method === 'WebcastSocialMessage') {
+        return {
+          ...result,
+          messageType: '关注消息',
+          user: texts[0] || '匿名用户',
+          allTexts: texts
+        };
+      }
+
+      // 其他消息类型
+      return {
+        ...result,
+        texts: texts
+      };
+    } catch (e) {
+      return result;
+    }
+  }
+
+  /**
+   * 从Buffer中提取文本
+   */
+  extractTexts(buffer) {
+    const texts = [];
+    const str = buffer.toString('utf8');
+    
+    // 匹配中文、英文、数字的连续字符串
+    const regex = /[\u4e00-\u9fa5a-zA-Z0-9]{2,}/g;
+    const matches = str.match(regex);
+    
+    if (matches) {
+      const seen = new Set();
+      for (const match of matches) {
+        // 过滤掉太长的（可能是乱码）和重复的
+        if (match.length >= 2 && match.length <= 50 && !seen.has(match)) {
+          // 过滤掉看起来像ID的纯数字
+          if (!/^\d+$/.test(match) || match.length < 10) {
+            texts.push(match);
+            seen.add(match);
+          }
+        }
+      }
+    }
+    
+    return texts.slice(0, 20);
+  }
+
+  /**
+   * 从Buffer中提取数字
+   */
+  extractNumbers(buffer) {
+    const numbers = [];
+    
+    for (let i = 0; i < buffer.length - 4; i++) {
+      if (buffer[i] < 0x80) {
+        const num = buffer.readUInt32LE(i);
+        if (num > 0 && num < 10000000) {
+          numbers.push(num);
+        }
+      }
+    }
+    
+    return numbers.slice(0, 5);
+  }
+
+  /**
+   * 读取Varint
+   */
+  readVarint(buffer, offset) {
+    let result = 0;
+    let shift = 0;
+
+    for (let i = 0; i < 10; i++) {
+      if (offset + i >= buffer.length) break;
+
+      const byte = buffer[offset + i];
+      result |= (byte & 0x7f) << shift;
+
+      if ((byte & 0x80) === 0) {
+        return result;
+      }
+
+      shift += 7;
+    }
+
+    return result;
+  }
+
+  /**
+   * 计算Varint占用的字节数
+   */
+  varintSize(value) {
+    let size = 0;
+    while (value > 0) {
+      size++;
+      value >>= 7;
+    }
+    return size || 1;
+  }
+
+  /**
    * 格式化消息用于显示
    */
-  formatMessage(parsedMessage) {
+  formatMessage(parsedMessages) {
+    if (!parsedMessages) return null;
+
+    // 如果是数组，格式化每条消息
+    if (Array.isArray(parsedMessages)) {
+      return parsedMessages.map(msg => this.formatSingleMessage(msg)).filter(Boolean).join('\n\n');
+    }
+
+    return this.formatSingleMessage(parsedMessages);
+  }
+
+  /**
+   * 格式化单条消息
+   */
+  formatSingleMessage(parsedMessage) {
     if (!parsedMessage) return null;
 
     const lines = [];
@@ -225,30 +550,21 @@ class DouyinWSMessageParser {
 
     switch (parsedMessage.messageType) {
       case '聊天消息':
-        lines.push(`║ 用户: ${parsedMessage.user} ${parsedMessage.userLevel ? `[Lv.${parsedMessage.userLevel}]` : ''}`);
+        lines.push(`║ 用户: ${parsedMessage.user}`);
         lines.push(`║ 内容: ${parsedMessage.content}`);
-        if (parsedMessage.userBadges && parsedMessage.userBadges.length > 0) {
-          lines.push(`║ 徽章: ${parsedMessage.userBadges.map(b => b.name || b).join(', ')}`);
-        }
         break;
 
       case '礼物消息':
         lines.push(`║ 用户: ${parsedMessage.user}`);
-        lines.push(`║ 礼物: ${parsedMessage.giftName} x ${parsedMessage.giftCount}`);
-        lines.push(`║ 价值: ${parsedMessage.totalValue} 💎`);
-        if (parsedMessage.comboCount > 0) {
-          lines.push(`║ 连击: ${parsedMessage.comboCount}`);
-        }
+        lines.push(`║ 礼物: ${parsedMessage.giftName}`);
         break;
 
       case '点赞消息':
-        lines.push(`║ 用户: ${parsedMessage.user}`);
-        lines.push(`║ 点赞数: ${parsedMessage.likeCount} ❤️`);
+        lines.push(`║ 用户: ${parsedMessage.user} ❤️`);
         break;
 
       case '进入直播间':
-        lines.push(`║ 用户: ${parsedMessage.user} ${parsedMessage.userLevel ? `[Lv.${parsedMessage.userLevel}]` : ''}`);
-        lines.push(`║ 当前人数: ${parsedMessage.memberCount}`);
+        lines.push(`║ 用户: ${parsedMessage.user}`);
         break;
 
       case '在线人数':
@@ -257,18 +573,15 @@ class DouyinWSMessageParser {
 
       case '关注消息':
         lines.push(`║ 用户: ${parsedMessage.user}`);
-        lines.push(`║ 动作: ${parsedMessage.action === 'follow' ? '关注了主播' : parsedMessage.action}`);
+        lines.push(`║ 动作: 关注了主播`);
         break;
 
       default:
         if (parsedMessage.user) {
           lines.push(`║ 用户: ${parsedMessage.user}`);
         }
-        if (parsedMessage.content) {
-          lines.push(`║ 内容: ${parsedMessage.content}`);
-        }
-        if (parsedMessage.extractedText) {
-          lines.push(`║ 提取文本: ${parsedMessage.extractedText}`);
+        if (parsedMessage.texts && parsedMessage.texts.length > 0) {
+          lines.push(`║ 提取信息: ${parsedMessage.texts.slice(0, 3).join(', ')}`);
         }
     }
 

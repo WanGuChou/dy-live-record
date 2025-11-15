@@ -70,7 +70,7 @@ wss.on('connection', (ws, req) => {
   clients.add(ws);
 
   // 处理接收到的消息
-  ws.on('message', (message) => {
+  ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message.toString());
       messageCount++;
@@ -183,7 +183,7 @@ wss.on('connection', (ws, req) => {
           // 检测是否为抖音直播消息
           if (data.url && douyinParser.isDouyinLiveWS(data.url)) {
             douyinMessageCount++;
-            const parsed = douyinParser.parseMessage(data.payloadData, data.url);
+            const parsed = await douyinParser.parseMessage(data.payloadData, data.url);
             if (parsed) {
               const formatted = douyinParser.formatMessage(parsed);
               if (formatted) {
@@ -216,7 +216,7 @@ wss.on('connection', (ws, req) => {
           // 检测是否为抖音直播消息
           if (data.url && douyinParser.isDouyinLiveWS(data.url)) {
             douyinMessageCount++;
-            const parsed = douyinParser.parseMessage(data.payloadData, data.url);
+            const parsed = await douyinParser.parseMessage(data.payloadData, data.url);
             if (parsed) {
               const formatted = douyinParser.formatMessage(parsed);
               if (formatted) {
