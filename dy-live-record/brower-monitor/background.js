@@ -3,19 +3,35 @@
 let wsConnection = null;
 let serverUrl = '';
 let isEnabled = false;
+let filterKeywords = ''; // 过滤关键字，逗号分隔
 let reconnectInterval = null;
 
 // 从存储中加载配置
 async function loadConfig() {
-  const result = await chrome.storage.local.get(['serverUrl', 'isEnabled']);
+  const result = await chrome.storage.local.get(['serverUrl', 'isEnabled', 'filterKeywords']);
   serverUrl = result.serverUrl || 'ws://localhost:8080/monitor';
   isEnabled = result.isEnabled !== undefined ? result.isEnabled : false;
+  filterKeywords = result.filterKeywords || '';
   
-  console.log('配置已加载:', { serverUrl, isEnabled });
+  console.log('配置已加载:', { serverUrl, isEnabled, filterKeywords });
   
   if (isEnabled) {
     connectWebSocket();
   }
+}
+
+// 检查URL是否匹配过滤关键字
+function matchesFilter(url) {
+  // 如果没有设置过滤关键字，全部发送
+  if (!filterKeywords || filterKeywords.trim() === '') {
+    return true;
+  }
+  
+  // 分割关键字并检查
+  const keywords = filterKeywords.split(',').map(k => k.trim()).filter(k => k !== '');
+  
+  // 只要匹配任一关键字就发送
+  return keywords.some(keyword => url.includes(keyword));
 }
 
 // 连接WebSocket
@@ -29,10 +45,11 @@ function connectWebSocket() {
     wsConnection = new WebSocket(serverUrl);
 
     wsConnection.onopen = () => {
-      console.log('WebSocket连接已建立');
+      console.log('✅ WebSocket连接已建立');
       sendMessage({
         type: 'connection',
         status: 'connected',
+        filterKeywords: filterKeywords,
         timestamp: new Date().toISOString()
       });
       
@@ -43,26 +60,26 @@ function connectWebSocket() {
     };
 
     wsConnection.onmessage = (event) => {
-      console.log('收到服务器消息:', event.data);
+      console.log('📥 收到服务器消息:', event.data);
     };
 
     wsConnection.onerror = (error) => {
-      console.error('WebSocket错误:', error);
+      console.error('❌ WebSocket错误:', error);
     };
 
     wsConnection.onclose = () => {
-      console.log('WebSocket连接已关闭');
+      console.log('🔌 WebSocket连接已关闭');
       wsConnection = null;
       
       if (isEnabled && !reconnectInterval) {
         reconnectInterval = setInterval(() => {
-          console.log('尝试重新连接...');
+          console.log('🔄 尝试重新连接...');
           connectWebSocket();
         }, 5000);
       }
     };
   } catch (error) {
-    console.error('WebSocket连接失败:', error);
+    console.error('❌ WebSocket连接失败:', error);
   }
 }
 
@@ -85,7 +102,7 @@ function sendMessage(data) {
     try {
       wsConnection.send(JSON.stringify(data));
     } catch (error) {
-      console.error('发送消息失败:', error);
+      console.error('❌ 发送消息失败:', error);
     }
   }
 }
@@ -103,8 +120,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       timestamp: new Date().toISOString()
     };
     
-    console.log('地址栏URL变化:', data.url);
-    sendMessage(data);
+    console.log('🌐 地址栏URL变化:', data.url);
+    
+    // 检查是否匹配过滤条件
+    if (matchesFilter(data.url)) {
+      console.log('  ✅ 匹配过滤条件，发送到服务器');
+      sendMessage(data);
+    } else {
+      console.log('  ⚠️ 不匹配过滤条件，跳过发送');
+    }
   }
 });
 
@@ -124,18 +148,35 @@ chrome.webRequest.onBeforeRequest.addListener(
       timestamp: new Date().toISOString()
     };
     
-    // 只在控制台简要输出，避免日志过多
-    if (details.type === 'main_frame') {
-      console.log('主请求:', data.url);
-    }
+    // 打印所有请求到控制台
+    const emoji = {
+      'main_frame': '📄',
+      'sub_frame': '🖼️',
+      'stylesheet': '🎨',
+      'script': '📜',
+      'image': '🖼️',
+      'font': '🔤',
+      'xmlhttprequest': '🔗',
+      'websocket': '🔌',
+      'media': '🎬',
+      'other': '📦'
+    };
     
-    sendMessage(data);
+    console.log(`${emoji[details.type] || '📦'} 请求 [${details.type}]:`, data.url);
+    
+    // 检查是否匹配过滤条件
+    if (matchesFilter(data.url)) {
+      console.log('  ✅ 匹配过滤条件，发送到服务器');
+      sendMessage(data);
+    } else {
+      console.log('  ⚠️ 不匹配过滤条件，跳过发送');
+    }
   },
   { urls: ['<all_urls>'] },
   ['requestBody']
 );
 
-// 监听网络请求完成（可选，获取响应状态）
+// 监听网络请求完成
 chrome.webRequest.onCompleted.addListener(
   (details) => {
     if (!isEnabled) return;
@@ -151,9 +192,18 @@ chrome.webRequest.onCompleted.addListener(
       timestamp: new Date().toISOString()
     };
     
-    sendMessage(data);
+    // 打印完成状态
+    const statusEmoji = details.statusCode >= 200 && details.statusCode < 300 ? '✅' : 
+                        details.statusCode >= 400 ? '❌' : '⚠️';
+    console.log(`${statusEmoji} 请求完成 [${details.statusCode}]:`, data.url);
+    
+    // 检查是否匹配过滤条件
+    if (matchesFilter(data.url)) {
+      sendMessage(data);
+    }
   },
-  { urls: ['<all_urls>'] }
+  { urls: ['<all_urls>'] },
+  ['responseHeaders']
 );
 
 // 监听来自popup的消息
@@ -161,8 +211,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'updateConfig') {
     serverUrl = request.serverUrl;
     isEnabled = request.isEnabled;
+    filterKeywords = request.filterKeywords || '';
     
-    console.log('配置已更新:', { serverUrl, isEnabled });
+    console.log('⚙️ 配置已更新:', { serverUrl, isEnabled, filterKeywords });
     
     if (isEnabled) {
       connectWebSocket();
@@ -175,7 +226,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({
       isEnabled: isEnabled,
       isConnected: wsConnection?.readyState === WebSocket.OPEN,
-      serverUrl: serverUrl
+      serverUrl: serverUrl,
+      filterKeywords: filterKeywords
     });
   }
   
@@ -184,15 +236,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // 扩展安装或更新时
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('扩展已安装/更新');
+  console.log('🔧 扩展已安装/更新');
   loadConfig();
 });
 
 // 扩展启动时
 chrome.runtime.onStartup.addListener(() => {
-  console.log('扩展已启动');
+  console.log('🚀 扩展已启动');
   loadConfig();
 });
 
 // 初始化
+console.log('🎯 初始化 URL & 请求监控插件');
 loadConfig();
