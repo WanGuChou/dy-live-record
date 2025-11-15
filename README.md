@@ -9,7 +9,8 @@
 - ✅ 请求和响应的完整头部信息
 
 **最新版本**: v2.0.0 🚀  
-**重大更新**: 使用 Chrome DevTools Protocol 实现深度监控
+**重大更新**: 使用 Chrome DevTools Protocol 实现深度监控  
+**新功能**: 🎬 抖音直播WebSocket消息自动解析 ⭐
 
 ---
 
@@ -202,9 +203,13 @@ CDP Monitor 服务器已启动
 ## 📚 详细文档
 
 ### 核心文档 ⭐
+- **[🎬 抖音直播快速开始](./DOUYIN_QUICK_START.md)** - 5分钟监控抖音直播 ⭐⭐⭐
 - **[CDP使用指南](./CDP_USAGE.md)** - 完整的使用说明和示例
 - **[CDP测试指南](./CDP_TEST.md)** - 详细的测试步骤和验证清单
-- **[隐藏调试横幅](./HIDE_DEBUGGER_BANNER.md)** - 如何隐藏"正在调试此浏览器"提示 ⭐
+- **[隐藏调试横幅](./HIDE_DEBUGGER_BANNER.md)** - 如何隐藏"正在调试此浏览器"提示
+
+### 抖音直播相关 🎬
+- **[抖音解析详细说明](./server/README_DOUYIN.md)** - 消息类型和技术细节
 
 ### 其他文档
 - **[插件文档](./dy-live-record/brower-monitor/README.md)** - 插件技术细节
