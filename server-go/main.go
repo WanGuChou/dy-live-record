@@ -14,7 +14,7 @@ import (
 
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	log.Println("🚀 抖音直播监控系统启动...")
+	log.Println("🚀 " + GetVersionInfo() + " 启动...")
 
 	// 0. 检查依赖
 	checker := dependencies.NewChecker()

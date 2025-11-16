@@ -1,0 +1,85 @@
+name: Build All Components
+
+on:
+  push:
+    branches: [ main, cursor/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-server-go:
+    name: Build server-go
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc
+    
+    - name: Build
+      working-directory: ./server-go
+      run: |
+        go build -v -o dy-live-monitor${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: server-go-${{ matrix.os }}
+        path: server-go/dy-live-monitor${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+  build-server-active:
+    name: Build server-active
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Build
+      working-directory: ./server-active
+      run: |
+        go build -v -o dy-live-license-server${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: server-active-${{ matrix.os }}
+        path: server-active/dy-live-license-server${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+  pack-browser-monitor:
+    name: Pack browser-monitor
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Pack plugin
+      working-directory: ./browser-monitor
+      run: |
+        mkdir -p ../server-go/assets
+        zip -r ../server-go/assets/browser-monitor.zip manifest.json background.js popup.html popup.js icons/
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: browser-monitor-plugin
+        path: server-go/assets/browser-monitor.zip
