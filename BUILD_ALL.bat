@@ -5,22 +5,9 @@ echo ========================================
 
 set ERROR_COUNT=0
 
-REM Build server-go
+REM Pack browser-monitor FIRST (server-go needs the zip file)
 echo.
-echo [1/3] Building server-go...
-cd server-go
-call build.bat
-if %ERRORLEVEL% NEQ 0 (
-    echo [FAILED] server-go build failed
-    set /a ERROR_COUNT+=1
-) else (
-    echo [SUCCESS] server-go built successfully
-)
-cd ..
-
-REM Pack browser-monitor
-echo.
-echo [2/3] Packing browser-monitor...
+echo [1/3] Packing browser-monitor...
 cd browser-monitor
 call pack.bat
 if %ERRORLEVEL% NEQ 0 (
@@ -31,9 +18,42 @@ if %ERRORLEVEL% NEQ 0 (
 )
 cd ..
 
+REM Download dependencies for server-go
+echo.
+echo [2/3] Downloading server-go dependencies...
+cd server-go
+go mod tidy
+if %ERRORLEVEL% NEQ 0 (
+    echo [WARNING] go mod tidy failed, continuing...
+)
+cd ..
+
+REM Build server-go
+echo.
+echo [3/3] Building server-go...
+cd server-go
+call build.bat
+if %ERRORLEVEL% NEQ 0 (
+    echo [FAILED] server-go build failed
+    set /a ERROR_COUNT+=1
+) else (
+    echo [SUCCESS] server-go built successfully
+)
+cd ..
+
+REM Download dependencies for server-active
+echo.
+echo [4/5] Downloading server-active dependencies...
+cd server-active
+go mod tidy
+if %ERRORLEVEL% NEQ 0 (
+    echo [WARNING] go mod tidy failed, continuing...
+)
+cd ..
+
 REM Build server-active
 echo.
-echo [3/3] Building server-active...
+echo [5/5] Building server-active...
 cd server-active
 call build.bat
 if %ERRORLEVEL% NEQ 0 (

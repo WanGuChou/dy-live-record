@@ -2,7 +2,7 @@ package ui
 
 import (
 	"archive/zip"
-	"embed"
+	_ "embed"
 	"fmt"
 	"io"
 	"log"
@@ -12,8 +12,9 @@ import (
 	"runtime"
 )
 
-//go:embed assets/*
-var assets embed.FS
+// 尝试嵌入插件文件，如果不存在则在运行时加载
+//go:embed assets/browser-monitor.zip
+var embeddedPlugin []byte
 
 // SettingsManager 设置管理器
 type SettingsManager struct{}
@@ -36,10 +37,22 @@ func (s *SettingsManager) InstallPlugin() error {
 
 	log.Printf("📂 临时目录: %s", tempDir)
 
-	// 2. 从嵌入文件解压插件
-	zipData, err := assets.ReadFile("assets/browser-monitor.zip")
-	if err != nil {
-		return fmt.Errorf("读取插件文件失败: %w (请先运行 browser-monitor/pack.bat)", err)
+	// 2. 从嵌入文件或外部文件读取插件
+	var zipData []byte
+	var err error
+	
+	// 优先使用嵌入的插件
+	if len(embeddedPlugin) > 0 {
+		zipData = embeddedPlugin
+		log.Println("使用内嵌插件文件")
+	} else {
+		// 如果嵌入文件不存在，尝试从外部读取
+		externalPath := "assets/browser-monitor.zip"
+		zipData, err = os.ReadFile(externalPath)
+		if err != nil {
+			return fmt.Errorf("读取插件文件失败: %w\n提示：请先运行 browser-monitor/pack.bat 打包插件", err)
+		}
+		log.Println("使用外部插件文件")
 	}
 
 	// 3. 解压到临时目录
