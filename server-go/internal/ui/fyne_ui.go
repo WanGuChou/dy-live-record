@@ -50,6 +50,17 @@ func init() {
 	}
 }
 
+// RoomTab 房间Tab数据
+type RoomTab struct {
+	RoomID       string
+	Tab          *container.TabItem
+	RawMessages  *widget.List
+	ParsedMsgs   *widget.List
+	RawData      []string
+	ParsedData   []string
+	StatsLabel   *widget.Label
+}
+
 // FyneUI Fyne 图形界面
 type FyneUI struct {
 	app       fyne.App
@@ -70,6 +81,10 @@ type FyneUI struct {
 	
 	// 当前选中的房间
 	currentRoom string
+	
+	// 动态房间 Tabs
+	roomTabs    map[string]*RoomTab
+	tabContainer *container.AppTabs
 	
 	// 配置
 	cfg *config.Config
@@ -92,6 +107,7 @@ func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer, cfg *config.Config)
 		totalValue:   binding.NewString(),
 		onlineUsers:  binding.NewString(),
 		debugMode:    binding.NewString(),
+		roomTabs:     make(map[string]*RoomTab),
 	}
 	
 	// 初始化数据
@@ -157,7 +173,7 @@ func (ui *FyneUI) createMainContent() fyne.CanvasObject {
 	statsCard := ui.createStatsCard()
 	
 	// 创建 Tab 容器
-	tabs := container.NewAppTabs(
+	ui.tabContainer = container.NewAppTabs(
 		container.NewTabItem("📊 数据概览", ui.createOverviewTab()),
 		container.NewTabItem("🎁 礼物记录", ui.createGiftsTab()),
 		container.NewTabItem("💬 消息记录", ui.createMessagesTab()),
@@ -172,7 +188,7 @@ func (ui *FyneUI) createMainContent() fyne.CanvasObject {
 		nil,       // bottom
 		nil,       // left
 		nil,       // right
-		tabs,      // center
+		ui.tabContainer, // center
 	)
 }
 

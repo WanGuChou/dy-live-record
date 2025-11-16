@@ -13,6 +13,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// UIUpdater UI更新接口
+type UIUpdater interface {
+	AddOrUpdateRoom(roomID string)
+	AddRawMessage(roomID string, message string)
+	AddParsedMessage(roomID string, message string)
+}
+
 // WebSocketServer WebSocket服务器
 type WebSocketServer struct {
 	port          int
@@ -24,6 +31,7 @@ type WebSocketServer struct {
 	roomsMu       sync.RWMutex
 	upgrader      websocket.Upgrader
 	started       chan bool // 用于通知服务器已启动
+	uiUpdater     UIUpdater // UI更新器
 }
 
 // RoomManager 房间管理器
@@ -53,7 +61,7 @@ func NewWebSocketServer(port int, db *database.DB) *WebSocketServer {
 
 // Start 启动WebSocket服务器
 func (s *WebSocketServer) Start() error {
-	http.HandleFunc("/ws", s.handleWebSocket)
+	http.HandleFunc("/monitor", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
 	
 	addr := fmt.Sprintf(":%d", s.port)
@@ -61,7 +69,7 @@ func (s *WebSocketServer) Start() error {
 	// 在单独的 goroutine 中启动服务器
 	go func() {
 		log.Printf("🌐 WebSocket 服务器正在启动，监听端口: %d", s.port)
-		log.Printf("📍 WebSocket 地址: ws://localhost:%d/ws", s.port)
+		log.Printf("📍 WebSocket 地址: ws://localhost:%d/monitor", s.port)
 		log.Printf("📍 健康检查地址: http://localhost:%d/health", s.port)
 		
 		// 通知服务器已准备好监听
@@ -144,6 +152,11 @@ func (s *WebSocketServer) handleMessage(message []byte) {
 	}
 }
 
+// SetUIUpdater 设置UI更新器
+func (s *WebSocketServer) SetUIUpdater(updater UIUpdater) {
+	s.uiUpdater = updater
+}
+
 // handleDouyinMessage 处理抖音消息
 func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	url, _ := data["url"].(string)
@@ -161,11 +174,31 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 
 	// 获取或创建房间管理器
 	room := s.getOrCreateRoom(roomID)
+	
+	// 通知UI创建房间Tab
+	if s.uiUpdater != nil {
+		s.uiUpdater.AddOrUpdateRoom(roomID)
+	}
+	
+	// 添加原始消息到UI
+	if s.uiUpdater != nil {
+		// 截取前200字符显示
+		displayData := payloadData
+		if len(displayData) > 200 {
+			displayData = displayData[:200] + "..."
+		}
+		s.uiUpdater.AddRawMessage(roomID, fmt.Sprintf("URL: %s\nPayload: %s", url, displayData))
+	}
 
 	// 解析抖音消息
 	parsedMessages, err := room.Parser.ParseMessage(payloadData, url)
 	if err != nil {
 		log.Printf("❌ [房间 %s] 解析失败: %v", roomID, err)
+		
+		// 添加错误到UI
+		if s.uiUpdater != nil {
+			s.uiUpdater.AddParsedMessage(roomID, fmt.Sprintf("❌ 解析失败: %v", err))
+		}
 		return
 	}
 
@@ -176,9 +209,35 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	// 存储到数据库
 	for _, msg := range parsedMessages {
 		s.saveMessage(roomID, room.SessionID, msg)
+		
+		// 添加解析后的消息到UI
+		if s.uiUpdater != nil {
+			msgType, _ := msg["messageType"].(string)
+			user, _ := msg["user"].(string)
+			content, _ := msg["content"].(string)
+			
+			displayMsg := fmt.Sprintf("类型: %s", msgType)
+			if user != "" {
+				displayMsg += fmt.Sprintf(" | 用户: %s", user)
+			}
+			if content != "" {
+				displayMsg += fmt.Sprintf(" | 内容: %s", content)
+			}
+			
+			// 特殊处理礼物消息
+			if msgType == "礼物消息" {
+				giftName, _ := msg["giftName"].(string)
+				giftCount, _ := msg["giftCount"].(string)
+				if giftName != "" {
+					displayMsg += fmt.Sprintf(" | 礼物: %s x%s", giftName, giftCount)
+				}
+			}
+			
+			s.uiUpdater.AddParsedMessage(roomID, displayMsg)
+		}
 	}
 
-	// 打印格式化消息
+	// 打印格式化消息到控制台
 	formatted := room.Parser.FormatMessage(parsedMessages)
 	if formatted != "" {
 		log.Println(formatted)
@@ -211,7 +270,7 @@ func (s *WebSocketServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"clients":      clientCount,
 		"rooms":        roomCount,
 		"endpoints": map[string]string{
-			"websocket": fmt.Sprintf("ws://localhost:%d/ws", s.port),
+			"websocket": fmt.Sprintf("ws://localhost:%d/monitor", s.port),
 			"health":    fmt.Sprintf("http://localhost:%d/health", s.port),
 		},
 	}

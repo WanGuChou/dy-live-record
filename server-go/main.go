@@ -103,7 +103,7 @@ func main() {
 	}
 	
 	log.Printf("✅ WebSocket 服务器启动成功！")
-	log.Printf("   📍 连接地址: ws://localhost:%d/ws", cfg.Server.Port)
+	log.Printf("   📍 连接地址: ws://localhost:%d/monitor", cfg.Server.Port)
 	log.Printf("   📍 健康检查: http://localhost:%d/health", cfg.Server.Port)
 	log.Printf("   💡 提示: 浏览器插件需连接到此地址")
 
@@ -115,5 +115,9 @@ func main() {
 	
 	// 主线程运行 Fyne GUI
 	fyneUI := ui.NewFyneUI(db.GetConn(), wsServer, cfg)
+	
+	// 将UI更新器设置到WebSocket服务器
+	wsServer.SetUIUpdater(fyneUI)
+	
 	fyneUI.Show() // 这会阻塞直到窗口关闭
 }
