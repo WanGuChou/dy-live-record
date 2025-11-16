@@ -15,25 +15,25 @@ echo [方案] 使用 Windows 短路径名（8.3 格式）
 echo.
 
 REM Program Files (x86) 的短路径是 PROGRA~2
-set SDK_BASE=C:\PROGRA~2\Windows Kits\10
+set "SDK_BASE=C:\PROGRA~2\WI459C~1\10"
 
 echo [1/3] 设置 CGO 编译标志...
 
 REM 使用短路径名，避免空格问题
 set CGO_ENABLED=1
-set "CGO_CFLAGS=-I%SDK_BASE%\Include\%SDK_VERSION%\winrt -I%SDK_BASE%\Include\%SDK_VERSION%\um -I%SDK_BASE%\Include\%SDK_VERSION%\shared -I%SDK_BASE%\Include\%SDK_VERSION%\ucrt"
-set "CGO_LDFLAGS=-L%SDK_BASE%\Lib\%SDK_VERSION%\um\x64 -L%SDK_BASE%\Lib\%SDK_VERSION%\ucrt\x64"
+set "CGO_CFLAGS=-IC:\PROGRA~2\WI459C~1\10\Include\%SDK_VERSION%\winrt -IC:\PROGRA~2\WI459C~1\10\Include\%SDK_VERSION%\um -IC:\PROGRA~2\WI459C~1\10\Include\%SDK_VERSION%\shared -IC:\PROGRA~2\WI459C~1\10\Include\%SDK_VERSION%\ucrt"
+set "CGO_LDFLAGS=-LC:\PROGRA~2\WI459C~1\10\Lib\%SDK_VERSION%\um\x64 -LC:\PROGRA~2\WI459C~1\10\Lib\%SDK_VERSION%\ucrt\x64"
 
 echo CGO_ENABLED: %CGO_ENABLED%
 echo CGO_CFLAGS: %CGO_CFLAGS%
 echo.
 
 echo [2/3] 验证路径...
-if exist "%SDK_BASE%\Include\%SDK_VERSION%\winrt\EventToken.h" (
-    echo [✓] EventToken.h 找到
+if exist "C:\PROGRA~2\WI459C~1\10\Include\%SDK_VERSION%\winrt\EventToken.h" (
+    echo [OK] EventToken.h 找到
 ) else (
-    echo [✗] EventToken.h 未找到
-    echo 完整路径: C:\Program Files (x86)\Windows Kits\10\Include\%SDK_VERSION%\winrt\EventToken.h
+    echo [ERROR] EventToken.h 未找到
+    echo 完整路径: C:\Program Files ^(x86^)\Windows Kits\10\Include\%SDK_VERSION%\winrt\EventToken.h
     pause
     exit /b 1
 )
