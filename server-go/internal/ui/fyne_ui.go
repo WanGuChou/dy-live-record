@@ -580,6 +580,141 @@ func (ui *FyneUI) startDataRefresh() {
 	}
 }
 
+// AddOrUpdateRoom 添加或更新房间Tab
+func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
+	// 检查房间是否已存在
+	if _, exists := ui.roomTabs[roomID]; exists {
+		return
+	}
+	
+	log.Printf("🎬 创建房间 Tab: %s", roomID)
+	
+	// 创建房间Tab
+	roomTab := &RoomTab{
+		RoomID:     roomID,
+		RawData:    make([]string, 0, 100),
+		ParsedData: make([]string, 0, 100),
+	}
+	
+	// 创建统计标签
+	roomTab.StatsLabel = widget.NewLabel(fmt.Sprintf("房间: %s | 消息: 0 条", roomID))
+	
+	// 创建原始消息列表
+	roomTab.RawMessages = widget.NewList(
+		func() int {
+			return len(roomTab.RawData)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("消息模板")
+		},
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			if id < len(roomTab.RawData) {
+				item.(*widget.Label).SetText(roomTab.RawData[id])
+			}
+		},
+	)
+	
+	// 创建解析后消息列表
+	roomTab.ParsedMsgs = widget.NewList(
+		func() int {
+			return len(roomTab.ParsedData)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("消息模板")
+		},
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			if id < len(roomTab.ParsedData) {
+				item.(*widget.Label).SetText(roomTab.ParsedData[id])
+			}
+		},
+	)
+	
+	// 创建分割视图
+	rawContainer := container.NewBorder(
+		widget.NewLabel("📡 原始 WebSocket 消息"),
+		nil, nil, nil,
+		container.NewScroll(roomTab.RawMessages),
+	)
+	
+	parsedContainer := container.NewBorder(
+		widget.NewLabel("📋 解析后的消息"),
+		nil, nil, nil,
+		container.NewScroll(roomTab.ParsedMsgs),
+	)
+	
+	split := container.NewHSplit(rawContainer, parsedContainer)
+	split.Offset = 0.5 // 50/50 分割
+	
+	content := container.NewBorder(
+		roomTab.StatsLabel,
+		nil, nil, nil,
+		split,
+	)
+	
+	// 创建Tab项
+	tabTitle := fmt.Sprintf("🏠 房间 %s", roomID)
+	roomTab.Tab = container.NewTabItem(tabTitle, content)
+	
+	// 添加到容器
+	ui.roomTabs[roomID] = roomTab
+	ui.tabContainer.Append(roomTab.Tab)
+	ui.tabContainer.Select(roomTab.Tab)
+	
+	log.Printf("✅ 房间 Tab 创建成功: %s", roomID)
+}
+
+// AddRawMessage 添加原始消息
+func (ui *FyneUI) AddRawMessage(roomID string, message string) {
+	roomTab, exists := ui.roomTabs[roomID]
+	if !exists {
+		log.Printf("⚠️  房间不存在，自动创建: %s", roomID)
+		ui.AddOrUpdateRoom(roomID)
+		roomTab = ui.roomTabs[roomID]
+	}
+	
+	// 添加消息（保留最新100条）
+	timestamp := time.Now().Format("15:04:05")
+	msg := fmt.Sprintf("[%s] %s", timestamp, message)
+	
+	roomTab.RawData = append(roomTab.RawData, msg)
+	if len(roomTab.RawData) > 100 {
+		roomTab.RawData = roomTab.RawData[1:]
+	}
+	
+	// 刷新UI
+	roomTab.RawMessages.Refresh()
+	
+	// 滚动到底部
+	roomTab.RawMessages.ScrollToBottom()
+}
+
+// AddParsedMessage 添加解析后的消息
+func (ui *FyneUI) AddParsedMessage(roomID string, message string) {
+	roomTab, exists := ui.roomTabs[roomID]
+	if !exists {
+		return
+	}
+	
+	// 添加消息（保留最新100条）
+	timestamp := time.Now().Format("15:04:05")
+	msg := fmt.Sprintf("[%s] %s", timestamp, message)
+	
+	roomTab.ParsedData = append(roomTab.ParsedData, msg)
+	if len(roomTab.ParsedData) > 100 {
+		roomTab.ParsedData = roomTab.ParsedData[1:]
+	}
+	
+	// 更新统计
+	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 原始消息: %d 条 | 解析消息: %d 条", 
+		roomID, len(roomTab.RawData), len(roomTab.ParsedData)))
+	
+	// 刷新UI
+	roomTab.ParsedMsgs.Refresh()
+	
+	// 滚动到底部
+	roomTab.ParsedMsgs.ScrollToBottom()
+}
+
 // refreshData 刷新数据
 func (ui *FyneUI) refreshData() {
 	// TODO: 从数据库查询最新数据
