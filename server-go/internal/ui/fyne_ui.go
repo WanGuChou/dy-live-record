@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -12,10 +14,41 @@ import (
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/flopp/go-findfont"
 
 	"dy-live-monitor/internal/config"
 	"dy-live-monitor/internal/server"
 )
+
+func init() {
+	// 设置中文字体：解决中文乱码问题
+	log.Println("🔍 正在查找系统中文字体...")
+	
+	fontPaths := findfont.List()
+	fontFound := false
+	
+	// 优先级顺序：微软雅黑 > 黑体 > 宋体 > 楷体
+	fontPriority := []string{"msyh.ttf", "msyhbd.ttf", "simhei.ttf", "simsun.ttc", "simkai.ttf"}
+	
+	for _, fontName := range fontPriority {
+		for _, path := range fontPaths {
+			if strings.Contains(strings.ToLower(path), strings.ToLower(fontName)) {
+				os.Setenv("FYNE_FONT", path)
+				log.Printf("✅ 找到中文字体: %s", path)
+				fontFound = true
+				break
+			}
+		}
+		if fontFound {
+			break
+		}
+	}
+	
+	if !fontFound {
+		log.Println("⚠️  警告：未找到常见中文字体，将使用系统默认字体")
+		log.Println("💡 提示：如果中文显示异常，请安装 Microsoft YaHei 字体")
+	}
+}
 
 // FyneUI Fyne 图形界面
 type FyneUI struct {

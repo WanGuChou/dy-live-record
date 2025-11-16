@@ -4,6 +4,7 @@ go 1.21
 
 require (
 	fyne.io/fyne/v2 v2.4.3
+	github.com/flopp/go-findfont v0.1.0
 	github.com/getlantern/systray v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.18
