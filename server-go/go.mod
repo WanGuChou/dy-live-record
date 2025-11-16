@@ -6,8 +6,11 @@ require (
 	github.com/getlantern/systray v1.2.2
 	github.com/gorilla/websocket v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.18
-	github.com/webview/webview_go v0.0.0-20230901181450-5a14030a9070
+	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 )
+
+// 暂时移除 webview，避免 Windows SDK 依赖问题
+// github.com/webview/webview_go v0.0.0-20230901181450-5a14030a9070
 
 require (
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect

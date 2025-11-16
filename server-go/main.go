@@ -87,4 +87,9 @@ func main() {
 	// 5. 启动系统托盘 UI
 	log.Println("✅ 启动系统托盘...")
 	ui.RunSystemTray(cfg, db, wsServer, licenseManager)
+	
+	// 注意：WebView2 主界面暂时禁用，避免 Windows SDK 依赖问题
+	// 如需启用，请安装完整的 Windows 10 SDK
+	// mainWindow := ui.NewMainWindow(db, wsServer)
+	// mainWindow.Show()
 }

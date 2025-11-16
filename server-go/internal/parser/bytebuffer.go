@@ -182,7 +182,7 @@ func (bb *ByteBuffer) ReadString(length int) (string, error) {
 			}
 			c2 := bytes[i+1]
 			c3 := bytes[i+2]
-			if ((c2 | uint32(c3)<<8) & 0xc0c0) != 0x8080 {
+			if ((uint32(c2) | uint32(c3)<<8) & 0xc0c0) != 0x8080 {
 				result += "\uFFFD"
 				i++
 			} else {
@@ -203,7 +203,7 @@ func (bb *ByteBuffer) ReadString(length int) (string, error) {
 			c2 := bytes[i+1]
 			c3 := bytes[i+2]
 			c4 := bytes[i+3]
-			if ((c2 | uint32(c3)<<8 | uint32(c4)<<16) & 0xc0c0c0) != 0x808080 {
+			if ((uint32(c2) | uint32(c3)<<8 | uint32(c4)<<16) & 0xc0c0c0) != 0x808080 {
 				result += "\uFFFD"
 				i++
 			} else {
