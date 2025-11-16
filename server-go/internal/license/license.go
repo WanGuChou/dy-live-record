@@ -194,15 +194,26 @@ func loadPublicKey(path string) (*rsa.PublicKey, error) {
 
 // getEmbeddedPublicKey 获取硬编码的公钥（生产环境）
 func getEmbeddedPublicKey() *rsa.PublicKey {
-	// 这里应该硬编码实际的公钥
-	// 示例：从PEM字符串解析
-	pemStr := `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
------END PUBLIC KEY-----`
+	// TODO: 生产环境需要硬编码实际的公钥
+	// 示例（需要替换为真实公钥）:
+	// pemStr := `-----BEGIN PUBLIC KEY-----
+	// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...真实公钥内容...
+	// -----END PUBLIC KEY-----`
+	//
+	// block, _ := pem.Decode([]byte(pemStr))
+	// if block == nil {
+	//     log.Println("❌ 公钥PEM解析失败")
+	//     return nil
+	// }
+	// pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	// if err != nil {
+	//     log.Printf("❌ 公钥解析失败: %v", err)
+	//     return nil
+	// }
+	// return pub.(*rsa.PublicKey)
 	
-	block, _ := pem.Decode([]byte(pemStr))
-	pub, _ := x509.ParsePKIXPublicKey(block.Bytes)
-	return pub.(*rsa.PublicKey)
+	log.Println("⚠️  警告：未配置嵌入公钥，请在生产环境配置 publicKeyPath")
+	return nil
 }
 
 // getNTPTime 从NTP服务器获取标准时间
