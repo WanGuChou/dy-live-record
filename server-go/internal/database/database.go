@@ -46,11 +46,6 @@ func (db *DB) GetConn() *sql.DB {
 	return db.conn
 }
 
-// GetConnection 获取底层的 sql.DB 连接（别名，兼容旧代码）
-func (db *DB) GetConnection() *sql.DB {
-	return db.conn
-}
-
 // initSchema 初始化数据库表结构
 func (db *DB) initSchema() error {
 	schema := `
