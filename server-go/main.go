@@ -10,7 +10,20 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"syscall"
 )
+
+func init() {
+	// 设置 Windows 控制台为 UTF-8 编码，避免中文乱码
+	if kernel32, err := syscall.LoadDLL("kernel32.dll"); err == nil {
+		if setConsoleCP, err := kernel32.FindProc("SetConsoleCP"); err == nil {
+			setConsoleCP.Call(65001) // UTF-8
+		}
+		if setConsoleOutputCP, err := kernel32.FindProc("SetConsoleOutputCP"); err == nil {
+			setConsoleOutputCP.Call(65001) // UTF-8
+		}
+	}
+}
 
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
