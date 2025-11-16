@@ -122,6 +122,35 @@ func (w *MainWindow) bindFunctions() {
 		}
 		return `{"success": true}`
 	})
+
+	// 创建分段
+	w.webview.Bind("createSegment", func(roomID, segmentName string) string {
+		result, err := w.createSegment(roomID, segmentName)
+		if err != nil {
+			return fmt.Sprintf(`{"success": false, "message": "%s"}`, err.Error())
+		}
+		data, _ := json.Marshal(result)
+		return string(data)
+	})
+
+	// 结束分段
+	w.webview.Bind("endSegment", func(segmentID string) string {
+		if err := w.endSegment(segmentID); err != nil {
+			return fmt.Sprintf(`{"success": false, "message": "%s"}`, err.Error())
+		}
+		return `{"success": true}`
+	})
+
+	// 获取分段列表
+	w.webview.Bind("getSegments", func(roomID string) string {
+		segments, err := w.getSegments(roomID)
+		if err != nil {
+			log.Printf("❌ 获取分段列表失败: %v", err)
+			return "[]"
+		}
+		data, _ := json.Marshal(segments)
+		return string(data)
+	})
 }
 
 // 数据库查询函数
@@ -278,6 +307,79 @@ func (w *MainWindow) deleteAnchor(anchorID string) error {
 		DELETE FROM anchors WHERE anchor_id = ?
 	`, anchorID)
 	return err
+}
+
+func (w *MainWindow) createSegment(roomID, segmentName string) (map[string]interface{}, error) {
+	// 获取当前房间的 session_id
+	var sessionID int64
+	err := w.db.GetConnection().QueryRow(`
+		SELECT id FROM live_sessions WHERE room_id = ? ORDER BY created_at DESC LIMIT 1
+	`, roomID).Scan(&sessionID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 先结束当前活动分段（如果有）
+	activeSegment, _ := w.db.GetActiveSegment(sessionID)
+	if activeSegment != nil {
+		w.db.EndSegment(activeSegment.ID)
+	}
+
+	// 创建新分段
+	segmentID, err := w.db.CreateSegment(sessionID, roomID, segmentName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"success":    true,
+		"segment_id": segmentID,
+	}, nil
+}
+
+func (w *MainWindow) endSegment(segmentIDStr string) error {
+	var segmentID int64
+	fmt.Sscanf(segmentIDStr, "%d", &segmentID)
+	return w.db.EndSegment(segmentID)
+}
+
+func (w *MainWindow) getSegments(roomID string) ([]map[string]interface{}, error) {
+	// 获取房间的 session_id
+	var sessionID int64
+	err := w.db.GetConnection().QueryRow(`
+		SELECT id FROM live_sessions WHERE room_id = ? ORDER BY created_at DESC LIMIT 1
+	`, roomID).Scan(&sessionID)
+
+	if err != nil {
+		return []map[string]interface{}{}, nil
+	}
+
+	segments, err := w.db.GetAllSegments(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]map[string]interface{}, 0)
+	for _, seg := range segments {
+		endTime := ""
+		if seg.EndTime != nil {
+			endTime = seg.EndTime.Format("2006-01-02 15:04:05")
+		} else {
+			endTime = "进行中"
+		}
+
+		result = append(result, map[string]interface{}{
+			"id":               seg.ID,
+			"segment_name":     seg.SegmentName,
+			"start_time":       seg.StartTime.Format("2006-01-02 15:04:05"),
+			"end_time":         endTime,
+			"total_gift_value": seg.TotalGiftValue,
+			"total_messages":   seg.TotalMessages,
+		})
+	}
+
+	return result, nil
 }
 
 // generateHTML 生成 HTML 页面
@@ -500,6 +602,7 @@ func (w *MainWindow) generateHTML() string {
                 <button class="tab active" onclick="switchTab('overview')">📊 数据概览</button>
                 <button class="tab" onclick="switchTab('gifts')">🎁 礼物记录</button>
                 <button class="tab" onclick="switchTab('messages')">💬 消息记录</button>
+                <button class="tab" onclick="switchTab('segments')">📈 分段记分</button>
                 <button class="tab" onclick="switchTab('anchors')">👤 主播管理</button>
             </div>
 
@@ -543,6 +646,28 @@ func (w *MainWindow) generateHTML() string {
                             <th>类型</th>
                             <th>用户</th>
                             <th>内容</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div id="segments" class="tab-content">
+                <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="segmentName" placeholder="输入分段名称（如：PK 第一轮）" style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px;">
+                    <button class="btn" onclick="createNewSegment()">📊 创建新分段</button>
+                    <button class="btn" onclick="endCurrentSegment()" style="background: #e74c3c;">⏹️ 结束当前分段</button>
+                </div>
+                
+                <table id="segmentsTable">
+                    <thead>
+                        <tr>
+                            <th>分段名称</th>
+                            <th>开始时间</th>
+                            <th>结束时间</th>
+                            <th>礼物总值(💎)</th>
+                            <th>消息数</th>
+                            <th>状态</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -763,6 +888,106 @@ func (w *MainWindow) generateHTML() string {
                 }
             } catch (e) {
                 alert('删除失败: ' + e.message);
+            }
+        }
+
+        // 加载分段列表
+        async function loadSegments(roomId) {
+            try {
+                const segments = JSON.parse(await getSegments(roomId));
+                const tbody = document.querySelector('#segmentsTable tbody');
+                
+                if (segments.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">暂无分段记录</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = segments.map(seg => `
+                    <tr style="${seg.end_time === '进行中' ? 'background: #fff3cd;' : ''}">
+                        <td><strong>${seg.segment_name}</strong></td>
+                        <td>${seg.start_time}</td>
+                        <td>${seg.end_time}</td>
+                        <td>${seg.total_gift_value}</td>
+                        <td>${seg.total_messages}</td>
+                        <td>${seg.end_time === '进行中' ? '<span style="color: #28a745;">⏺️ 进行中</span>' : '<span style="color: #6c757d;">⏹️ 已结束</span>'}</td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载分段列表失败:', e);
+            }
+        }
+
+        // 创建新分段
+        async function createNewSegment() {
+            if (!currentRoom) {
+                alert('请先选择一个房间');
+                return;
+            }
+
+            const segmentName = document.getElementById('segmentName').value;
+            if (!segmentName) {
+                alert('请输入分段名称');
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(await createSegment(currentRoom, segmentName));
+                if (result.success) {
+                    alert('分段创建成功！');
+                    document.getElementById('segmentName').value = '';
+                    loadSegments(currentRoom);
+                } else {
+                    alert('创建失败: ' + result.message);
+                }
+            } catch (e) {
+                alert('创建失败: ' + e.message);
+            }
+        }
+
+        // 结束当前分段
+        async function endCurrentSegment() {
+            if (!currentRoom) {
+                alert('请先选择一个房间');
+                return;
+            }
+
+            if (!confirm('确定要结束当前分段吗？')) return;
+            
+            try {
+                // 获取当前活动分段
+                const segments = JSON.parse(await getSegments(currentRoom));
+                const activeSegment = segments.find(s => s.end_time === '进行中');
+                
+                if (!activeSegment) {
+                    alert('当前没有进行中的分段');
+                    return;
+                }
+
+                const result = JSON.parse(await endSegment(String(activeSegment.id)));
+                if (result.success) {
+                    alert('分段已结束！');
+                    loadSegments(currentRoom);
+                } else {
+                    alert('结束失败: ' + result.message);
+                }
+            } catch (e) {
+                alert('结束失败: ' + e.message);
+            }
+        }
+
+        // 修改 switchTab 函数
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+            
+            if (currentRoom) {
+                if (tabName === 'gifts') loadGifts(currentRoom);
+                if (tabName === 'messages') loadMessages(currentRoom);
+                if (tabName === 'segments') loadSegments(currentRoom);
+                if (tabName === 'anchors') loadAnchors();
             }
         }
 

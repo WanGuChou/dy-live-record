@@ -12,6 +12,10 @@ import (
 func SetupRoutes(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 	licenseManager := license.NewManager(db, cfg)
 
+	// 静态文件（管理后台 UI）
+	router.StaticFile("/", "./web/admin.html")
+	router.StaticFile("/admin", "./web/admin.html")
+
 	api := router.Group("/api/v1")
 	{
 		// 许可证生成 (管理后台使用)
@@ -37,6 +41,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 		// 撤销许可证
 		api.POST("/licenses/:license_key/revoke", func(c *gin.Context) {
 			RevokeLicense(c, licenseManager)
+		})
+
+		// 获取许可证列表（管理后台使用）
+		api.GET("/licenses/list", func(c *gin.Context) {
+			ListLicenses(c, licenseManager)
 		})
 	}
 }

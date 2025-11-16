@@ -152,3 +152,14 @@ func RevokeLicense(c *gin.Context, manager *license.Manager) {
 		"message": "License revoked successfully",
 	})
 }
+
+// ListLicenses 获取许可证列表
+func ListLicenses(c *gin.Context, manager *license.Manager) {
+	licenses, err := manager.ListAllLicenses()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list licenses", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, licenses)
+}

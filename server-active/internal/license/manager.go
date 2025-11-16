@@ -307,3 +307,46 @@ func (m *Manager) RevokeLicense(licenseKey string) error {
 	`, licenseKey)
 	return err
 }
+
+// ListAllLicenses 获取所有许可证列表
+func (m *Manager) ListAllLicenses() ([]map[string]interface{}, error) {
+	rows, err := m.db.Query(`
+		SELECT license_key, software_id, customer_id, expiry_date, 
+		       activation_count, max_activations, license_type, status, created_at
+		FROM licenses
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	licenses := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		var licenseKey, softwareID, customerID, licenseType, status string
+		var expiryDate, createdAt time.Time
+		var activationCount, maxActivations int
+
+		err := rows.Scan(
+			&licenseKey, &softwareID, &customerID, &expiryDate,
+			&activationCount, &maxActivations, &licenseType, &status, &createdAt,
+		)
+		if err != nil {
+			continue
+		}
+
+		licenses = append(licenses, map[string]interface{}{
+			"license_key":      licenseKey,
+			"software_id":      softwareID,
+			"customer_id":      customerID,
+			"expiry_date":      expiryDate,
+			"activation_count": activationCount,
+			"max_activations":  maxActivations,
+			"license_type":     licenseType,
+			"status":           status,
+			"created_at":       createdAt,
+		})
+	}
+
+	return licenses, nil
+}

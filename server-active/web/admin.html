@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>许可证管理后台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .header p {
+            color: #666;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .card h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        .btn {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .btn-danger {
+            background: #e74c3c;
+        }
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        thead {
+            background: #f8f9fa;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        th {
+            font-weight: 600;
+            color: #666;
+            font-size: 14px;
+        }
+        td {
+            font-size: 14px;
+        }
+        tbody tr:hover {
+            background: #f8f9fa;
+        }
+        .status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-expired {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-revoked {
+            background: #d6d8db;
+            color: #383d41;
+        }
+        .result-box {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            display: none;
+        }
+        .result-box.show {
+            display: block;
+        }
+        .result-box pre {
+            margin: 10px 0 0 0;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 许可证管理后台</h1>
+            <p>抖音直播监控系统 - License Authorization Service</p>
+        </div>
+
+        <!-- 生成许可证 -->
+        <div class="card">
+            <h2>📝 生成新许可证</h2>
+            <form id="generateForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>客户 ID *</label>
+                        <input type="text" name="customer_id" placeholder="例如: customer_001" required>
+                    </div>
+                    <div class="form-group">
+                        <label>软件 ID</label>
+                        <input type="text" name="software_id" value="dy-live-monitor" readonly>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>有效天数 *</label>
+                        <input type="number" name="expiry_days" value="365" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>最大激活次数</label>
+                        <input type="number" name="max_activations" value="1" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>许可证类型</label>
+                        <select name="license_type">
+                            <option value="full">正式版</option>
+                            <option value="trial">试用版</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>功能权限 (JSON)</label>
+                    <textarea name="features" rows="3" placeholder='{"max_rooms": 10, "export_data": true}'>{"max_rooms": 10, "export_data": true}</textarea>
+                </div>
+                <button type="submit" class="btn">🔑 生成许可证</button>
+            </form>
+            <div id="generateResult" class="result-box">
+                <strong>✅ 许可证生成成功！</strong>
+                <pre id="licenseData"></pre>
+            </div>
+        </div>
+
+        <!-- 许可证列表 -->
+        <div class="card">
+            <h2>📋 许可证列表</h2>
+            <button class="btn" onclick="loadLicenses()">🔄 刷新列表</button>
+            <table id="licenseTable">
+                <thead>
+                    <tr>
+                        <th>许可证 Key</th>
+                        <th>客户 ID</th>
+                        <th>过期时间</th>
+                        <th>激活次数</th>
+                        <th>类型</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="7" class="loading">点击刷新按钮加载数据</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/v1';
+
+        // 生成许可证
+        document.getElementById('generateForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+            
+            // 转换数字字段
+            data.expiry_days = parseInt(data.expiry_days);
+            data.max_activations = parseInt(data.max_activations || 1);
+            
+            // 解析 features JSON
+            try {
+                data.features = JSON.parse(data.features || '{}');
+            } catch (err) {
+                alert('功能权限 JSON 格式错误: ' + err.message);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/licenses/generate`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('generateResult').classList.add('show');
+                    document.getElementById('licenseData').textContent = 
+                        `许可证 Key: ${result.license_key}\n\n` +
+                        `许可证数据（交给客户）:\n${result.license_data}\n\n` +
+                        `过期时间: ${result.expiry_date}`;
+                    
+                    // 重置表单
+                    e.target.reset();
+                    document.querySelector('[name="software_id"]').value = 'dy-live-monitor';
+                    document.querySelector('[name="features"]').value = '{"max_rooms": 10, "export_data": true}';
+                    
+                    // 刷新列表
+                    loadLicenses();
+                } else {
+                    alert('生成失败: ' + (result.error || result.message));
+                }
+            } catch (err) {
+                alert('请求失败: ' + err.message);
+            }
+        };
+
+        // 加载许可证列表
+        async function loadLicenses() {
+            const tbody = document.querySelector('#licenseTable tbody');
+            tbody.innerHTML = '<tr><td colspan="7" class="loading">加载中...</td></tr>';
+
+            try {
+                // 注意：这个接口需要在 server-active 中实现
+                const response = await fetch(`${API_BASE}/licenses/list`);
+                
+                if (!response.ok) {
+                    throw new Error('加载失败');
+                }
+
+                const licenses = await response.json();
+                
+                if (licenses.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">暂无许可证</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = licenses.map(lic => {
+                    const statusClass = lic.status === 'active' ? 'status-active' : 
+                                       lic.status === 'expired' ? 'status-expired' : 'status-revoked';
+                    const statusText = lic.status === 'active' ? '✅ 激活' : 
+                                      lic.status === 'expired' ? '⏰ 过期' : '❌ 撤销';
+                    
+                    return `
+                        <tr>
+                            <td><code>${lic.license_key}</code></td>
+                            <td>${lic.customer_id}</td>
+                            <td>${new Date(lic.expiry_date).toLocaleString('zh-CN')}</td>
+                            <td>${lic.activation_count} / ${lic.max_activations}</td>
+                            <td>${lic.license_type === 'full' ? '正式版' : '试用版'}</td>
+                            <td><span class="status ${statusClass}">${statusText}</span></td>
+                            <td>
+                                <button class="btn" onclick="viewLicense('${lic.license_key}')" style="padding: 6px 12px; font-size: 12px;">查看</button>
+                                ${lic.status === 'active' ? 
+                                    `<button class="btn btn-danger" onclick="revokeLicense('${lic.license_key}')" style="padding: 6px 12px; font-size: 12px;">撤销</button>` 
+                                    : ''}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: red;">❌ ${err.message}</td></tr>`;
+            }
+        }
+
+        // 查看许可证详情
+        async function viewLicense(licenseKey) {
+            try {
+                const response = await fetch(`${API_BASE}/licenses/${licenseKey}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert(
+                        `许可证详情:\n\n` +
+                        `Key: ${data.license_key}\n` +
+                        `客户: ${data.customer_id}\n` +
+                        `软件: ${data.software_id}\n` +
+                        `过期时间: ${new Date(data.expiry_date).toLocaleString('zh-CN')}\n` +
+                        `激活次数: ${data.activation_count} / ${data.max_activations}\n` +
+                        `类型: ${data.license_type}\n` +
+                        `状态: ${data.status}`
+                    );
+                } else {
+                    alert('查询失败: ' + (data.error || data.message));
+                }
+            } catch (err) {
+                alert('请求失败: ' + err.message);
+            }
+        }
+
+        // 撤销许可证
+        async function revokeLicense(licenseKey) {
+            if (!confirm(`确定要撤销许可证 ${licenseKey} 吗？此操作不可逆！`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/licenses/${licenseKey}/revoke`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('✅ 许可证已撤销');
+                    loadLicenses();
+                } else {
+                    alert('撤销失败: ' + (data.error || data.message));
+                }
+            } catch (err) {
+                alert('请求失败: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>

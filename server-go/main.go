@@ -3,9 +3,11 @@ package main
 import (
 	"dy-live-monitor/internal/config"
 	"dy-live-monitor/internal/database"
+	"dy-live-monitor/internal/dependencies"
 	"dy-live-monitor/internal/license"
 	"dy-live-monitor/internal/server"
 	"dy-live-monitor/internal/ui"
+	"fmt"
 	"log"
 	"os"
 )
@@ -13,6 +15,28 @@ import (
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 	log.Println("🚀 抖音直播监控系统启动...")
+
+	// 0. 检查依赖
+	checker := dependencies.NewChecker()
+	if !checker.CheckAll() {
+		log.Println("\n⚠️  检测到关键依赖缺失")
+		fmt.Print("\n是否尝试自动安装 WebView2? (y/n): ")
+		var response string
+		fmt.Scanln(&response)
+		
+		if response == "y" || response == "Y" {
+			if err := checker.AutoInstallWebView2(); err != nil {
+				log.Printf("❌ 自动安装失败: %v", err)
+				log.Println("请手动安装后重启程序")
+			} else {
+				log.Println("✅ 安装成功！请重启程序")
+			}
+		}
+		
+		log.Println("\n按任意键退出...")
+		fmt.Scanln()
+		os.Exit(1)
+	}
 
 	// 1. 加载配置
 	cfg, err := config.Load()
