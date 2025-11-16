@@ -10,7 +10,6 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -76,6 +75,22 @@ func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer, cfg *config.Config)
 	return ui
 }
 
+// triggerBindingUpdates 触发所有绑定更新（用于初始化格式化标签）
+func (ui *FyneUI) triggerBindingUpdates() {
+	// 触发所有绑定的监听器，确保格式化标签正确显示
+	val, _ := ui.giftCount.Get()
+	ui.giftCount.Set(val)
+	
+	val, _ = ui.messageCount.Get()
+	ui.messageCount.Set(val)
+	
+	val, _ = ui.totalValue.Get()
+	ui.totalValue.Set(val)
+	
+	val, _ = ui.onlineUsers.Get()
+	ui.onlineUsers.Set(val)
+}
+
 // Show 显示主窗口
 func (ui *FyneUI) Show() {
 	title := "抖音直播监控系统 v3.2.0"
@@ -90,6 +105,9 @@ func (ui *FyneUI) Show() {
 	// 创建主界面
 	content := ui.createMainContent()
 	ui.mainWin.SetContent(content)
+	
+	// 触发初始绑定更新（确保格式化标签显示正确）
+	ui.triggerBindingUpdates()
 	
 	// 启动数据刷新
 	go ui.startDataRefresh()
@@ -124,16 +142,37 @@ func (ui *FyneUI) createMainContent() fyne.CanvasObject {
 
 // createStatsCard 创建统计卡片
 func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
-	giftLabel := widget.NewLabelWithData(binding.StringFormat("礼物总数: %s", ui.giftCount))
+	// 创建格式化的绑定字符串
+	giftFormatted := binding.NewString()
+	ui.giftCount.AddListener(binding.NewDataListener(func() {
+		val, _ := ui.giftCount.Get()
+		giftFormatted.Set(fmt.Sprintf("礼物总数: %s", val))
+	}))
+	giftLabel := widget.NewLabelWithData(giftFormatted)
 	giftLabel.TextStyle = fyne.TextStyle{Bold: true}
 	
-	messageLabel := widget.NewLabelWithData(binding.StringFormat("消息总数: %s", ui.messageCount))
+	messageFormatted := binding.NewString()
+	ui.messageCount.AddListener(binding.NewDataListener(func() {
+		val, _ := ui.messageCount.Get()
+		messageFormatted.Set(fmt.Sprintf("消息总数: %s", val))
+	}))
+	messageLabel := widget.NewLabelWithData(messageFormatted)
 	messageLabel.TextStyle = fyne.TextStyle{Bold: true}
 	
-	valueLabel := widget.NewLabelWithData(binding.StringFormat("礼物总值: %s 钻石", ui.totalValue))
+	valueFormatted := binding.NewString()
+	ui.totalValue.AddListener(binding.NewDataListener(func() {
+		val, _ := ui.totalValue.Get()
+		valueFormatted.Set(fmt.Sprintf("礼物总值: %s 钻石", val))
+	}))
+	valueLabel := widget.NewLabelWithData(valueFormatted)
 	valueLabel.TextStyle = fyne.TextStyle{Bold: true}
 	
-	onlineLabel := widget.NewLabelWithData(binding.StringFormat("在线用户: %s", ui.onlineUsers))
+	onlineFormatted := binding.NewString()
+	ui.onlineUsers.AddListener(binding.NewDataListener(func() {
+		val, _ := ui.onlineUsers.Get()
+		onlineFormatted.Set(fmt.Sprintf("在线用户: %s", val))
+	}))
+	onlineLabel := widget.NewLabelWithData(onlineFormatted)
 	onlineLabel.TextStyle = fyne.TextStyle{Bold: true}
 	
 	// 统计卡片
