@@ -15,13 +15,14 @@ import (
 
 // WebSocketServer WebSocket服务器
 type WebSocketServer struct {
-	port      int
-	db        *database.DB
-	clients   map[*websocket.Conn]bool
-	clientsMu sync.RWMutex
-	rooms     map[string]*RoomManager
-	roomsMu   sync.RWMutex
-	upgrader  websocket.Upgrader
+	port          int
+	db            *database.DB
+	giftAllocator *GiftAllocator
+	clients       map[*websocket.Conn]bool
+	clientsMu     sync.RWMutex
+	rooms         map[string]*RoomManager
+	roomsMu       sync.RWMutex
+	upgrader      websocket.Upgrader
 }
 
 // RoomManager 房间管理器
@@ -35,10 +36,11 @@ type RoomManager struct {
 // NewWebSocketServer 创建WebSocket服务器
 func NewWebSocketServer(port int, db *database.DB) *WebSocketServer {
 	return &WebSocketServer{
-		port:    port,
-		db:      db,
-		clients: make(map[*websocket.Conn]bool),
-		rooms:   make(map[string]*RoomManager),
+		port:          port,
+		db:            db,
+		giftAllocator: NewGiftAllocator(db.GetConnection()),
+		clients:       make(map[*websocket.Conn]bool),
+		rooms:         make(map[string]*RoomManager),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // 允许所有来源（生产环境应限制）
@@ -233,6 +235,7 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, msg map
 	giftName, _ := msg["giftName"].(string)
 	giftCount, _ := msg["giftCount"].(string)
 	diamondCount, _ := msg["diamondCount"].(int)
+	content, _ := msg["content"].(string)
 
 	_, err := s.db.GetConnection().Exec(`
 		INSERT INTO gift_records (
@@ -242,6 +245,16 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, msg map
 
 	if err != nil {
 		log.Printf("❌ 保存礼物记录失败: %v", err)
+		return
+	}
+
+	// 尝试分配礼物给主播
+	anchorID, err := s.giftAllocator.AllocateGift(giftName, content)
+	if err == nil && anchorID != "" {
+		// 记录主播业绩
+		if err := s.giftAllocator.RecordAnchorPerformance(anchorID, giftName, diamondCount); err != nil {
+			log.Printf("❌ 记录主播业绩失败: %v", err)
+		}
 	}
 }
 

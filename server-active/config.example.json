@@ -1,0 +1,17 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": "8080"
+  },
+  "database": {
+    "host": "localhost",
+    "port": "3306",
+    "user": "root",
+    "password": "your_password_here",
+    "database": "dy_license"
+  },
+  "license": {
+    "private_key_path": "./keys/private.pem",
+    "public_key_path": "./keys/public.pem"
+  }
+}
