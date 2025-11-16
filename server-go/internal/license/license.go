@@ -40,10 +40,26 @@ type Manager struct {
 
 // NewManager 创建许可证管理器
 func NewManager(serverURL, publicKeyPath string) *Manager {
-	pubKey, err := loadPublicKey(publicKeyPath)
-	if err != nil {
-		// 如果公钥加载失败，使用硬编码的公钥（生产环境）
+	var pubKey *rsa.PublicKey
+	var err error
+	
+	// 尝试从文件加载公钥
+	if publicKeyPath != "" {
+		pubKey, err = loadPublicKey(publicKeyPath)
+		if err != nil {
+			log.Printf("⚠️  公钥文件加载失败: %v", err)
+		}
+	}
+	
+	// 如果文件加载失败，尝试使用嵌入的公钥
+	if pubKey == nil {
 		pubKey = getEmbeddedPublicKey()
+	}
+	
+	// 如果仍然没有公钥，创建一个临时的（仅用于调试）
+	if pubKey == nil {
+		log.Println("⚠️  警告：未找到有效公钥，License 验证将无法工作")
+		log.Println("⚠️  请配置 publicKeyPath 或启用调试模式")
 	}
 
 	return &Manager{
@@ -69,6 +85,11 @@ func (m *Manager) SaveLocal(license string) error {
 
 // Validate 校验许可证（离线模式）
 func (m *Manager) Validate(licenseString string) (bool, time.Time, error) {
+	// 检查公钥是否可用
+	if m.publicKey == nil {
+		return false, time.Time{}, errors.New("公钥未配置，无法验证许可证")
+	}
+	
 	// 1. Base64 解码
 	decoded, err := base64.StdEncoding.DecodeString(licenseString)
 	if err != nil {
