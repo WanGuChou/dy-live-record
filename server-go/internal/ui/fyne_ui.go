@@ -14,6 +14,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"dy-live-monitor/internal/config"
 	"dy-live-monitor/internal/server"
 )
 
@@ -29,6 +30,7 @@ type FyneUI struct {
 	messageCount binding.String
 	totalValue   binding.String
 	onlineUsers  binding.String
+	debugMode    binding.String
 	
 	// 表格数据
 	giftTable    *widget.Table
@@ -36,10 +38,13 @@ type FyneUI struct {
 	
 	// 当前选中的房间
 	currentRoom string
+	
+	// 配置
+	cfg *config.Config
 }
 
 // NewFyneUI 创建 Fyne UI
-func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer) *FyneUI {
+func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer, cfg *config.Config) *FyneUI {
 	fyneApp := app.NewWithID("com.dy-live-monitor")
 	fyneApp.Settings().SetTheme(theme.DefaultTheme())
 	
@@ -47,10 +52,12 @@ func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer) *FyneUI {
 		app:          fyneApp,
 		db:           db,
 		wsServer:     wsServer,
+		cfg:          cfg,
 		giftCount:    binding.NewString(),
 		messageCount: binding.NewString(),
 		totalValue:   binding.NewString(),
 		onlineUsers:  binding.NewString(),
+		debugMode:    binding.NewString(),
 	}
 	
 	// 初始化数据
@@ -59,12 +66,24 @@ func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer) *FyneUI {
 	ui.totalValue.Set("0")
 	ui.onlineUsers.Set("0")
 	
+	// 设置调试模式状态
+	if cfg.Debug.Enabled {
+		ui.debugMode.Set("⚠️ 调试模式")
+	} else {
+		ui.debugMode.Set("")
+	}
+	
 	return ui
 }
 
 // Show 显示主窗口
 func (ui *FyneUI) Show() {
-	ui.mainWin = ui.app.NewWindow("抖音直播监控系统 v3.2.0")
+	title := "抖音直播监控系统 v3.2.0"
+	if ui.cfg.Debug.Enabled {
+		title += " [调试模式]"
+	}
+	
+	ui.mainWin = ui.app.NewWindow(title)
 	ui.mainWin.Resize(fyne.NewSize(1200, 800))
 	ui.mainWin.CenterOnScreen()
 	
@@ -117,7 +136,8 @@ func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
 	onlineLabel := widget.NewLabelWithData(binding.StringFormat("在线用户: %s", ui.onlineUsers))
 	onlineLabel.TextStyle = fyne.TextStyle{Bold: true}
 	
-	card := container.NewGridWithColumns(4,
+	// 统计卡片
+	statsCards := []fyne.CanvasObject{
 		container.NewVBox(
 			widget.NewIcon(theme.ContentAddIcon()),
 			giftLabel,
@@ -134,7 +154,20 @@ func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
 			widget.NewIcon(theme.ComputerIcon()),
 			onlineLabel,
 		),
-	)
+	}
+	
+	// 如果启用调试模式，添加调试标识
+	if ui.cfg.Debug.Enabled {
+		debugLabel := widget.NewLabelWithData(ui.debugMode)
+		debugLabel.TextStyle = fyne.TextStyle{Bold: true}
+		debugCard := container.NewVBox(
+			widget.NewIcon(theme.WarningIcon()),
+			debugLabel,
+		)
+		statsCards = append(statsCards, debugCard)
+	}
+	
+	card := container.NewGridWithColumns(len(statsCards), statsCards...)
 	
 	return container.NewPadded(card)
 }
@@ -148,8 +181,7 @@ func (ui *FyneUI) createOverviewTab() fyne.CanvasObject {
 		ui.refreshData()
 	})
 	
-	info := widget.NewLabel(`
-📊 实时监控说明
+	infoText := `📊 实时监控说明
 
 1. 打开浏览器并安装插件
 2. 访问抖音直播间
@@ -162,7 +194,28 @@ func (ui *FyneUI) createOverviewTab() fyne.CanvasObject {
 ✅ 主播管理
 ✅ 分段记分
 ✅ 数据持久化
-	`)
+`
+	
+	// 如果启用调试模式，添加警告信息
+	if ui.cfg.Debug.Enabled {
+		infoText += `
+⚠️  调试模式已启用
+`
+		if ui.cfg.Debug.SkipLicense {
+			infoText += `⚠️  License 验证已跳过（仅供调试）
+`
+		}
+		if ui.cfg.Debug.VerboseLog {
+			infoText += `⚠️  详细日志已启用
+`
+		}
+		infoText += `
+❗ 警告：调试模式仅供开发使用，
+   生产环境请在 config.json 中禁用！
+`
+	}
+	
+	info := widget.NewLabel(infoText)
 	
 	return container.NewVBox(
 		roomLabel,

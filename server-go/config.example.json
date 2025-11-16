@@ -1,0 +1,19 @@
+{
+  "server": {
+    "port": 8080
+  },
+  "database": {
+    "path": "data.db"
+  },
+  "license": {
+    "key": "",
+    "server_url": "http://localhost:8081",
+    "offline_grace_days": 7,
+    "validation_interval": 60
+  },
+  "debug": {
+    "enabled": false,
+    "skip_license": false,
+    "verbose_log": false
+  }
+}

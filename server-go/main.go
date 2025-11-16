@@ -53,27 +53,33 @@ func main() {
 	defer db.Close()
 	log.Println("✅ 数据库初始化成功")
 
-	// 3. 许可证校验（强制）
+	// 3. 许可证校验
 	licenseManager := license.NewManager(cfg.License.ServerURL, cfg.License.PublicKeyPath)
 	
-	// 读取本地许可证
-	localLicense, err := licenseManager.LoadLocal()
-	if err != nil || localLicense == "" {
-		log.Println("⚠️  未找到有效许可证，请激活软件")
-		// 显示激活窗口
-		ui.ShowActivationDialog(licenseManager)
-		os.Exit(1)
-	}
+	// 检查是否启用调试模式
+	if cfg.Debug.Enabled && cfg.Debug.SkipLicense {
+		log.Println("⚠️  调试模式已启用，跳过 License 验证")
+		log.Println("⚠️  警告：调试模式仅供开发使用，生产环境请禁用！")
+	} else {
+		// 读取本地许可证
+		localLicense, err := licenseManager.LoadLocal()
+		if err != nil || localLicense == "" {
+			log.Println("⚠️  未找到有效许可证，请激活软件")
+			// 显示激活窗口
+			ui.ShowActivationDialog(licenseManager)
+			os.Exit(1)
+		}
 
-	// 校验许可证
-	valid, expiryDate, err := licenseManager.Validate(localLicense)
-	if err != nil || !valid {
-		log.Printf("❌ 许可证校验失败: %v", err)
-		ui.ShowActivationDialog(licenseManager)
-		os.Exit(1)
-	}
+		// 校验许可证
+		valid, expiryDate, err := licenseManager.Validate(localLicense)
+		if err != nil || !valid {
+			log.Printf("❌ 许可证校验失败: %v", err)
+			ui.ShowActivationDialog(licenseManager)
+			os.Exit(1)
+		}
 
-	log.Printf("✅ 许可证校验通过，有效期至: %s", expiryDate.Format("2006-01-02"))
+		log.Printf("✅ 许可证校验通过，有效期至: %s", expiryDate.Format("2006-01-02"))
+	}
 
 	// 4. 启动 WebSocket 服务器
 	wsServer := server.NewWebSocketServer(cfg.Server.Port, db)
@@ -91,6 +97,6 @@ func main() {
 	go ui.RunSystemTray(cfg, db, wsServer, licenseManager)
 	
 	// 主线程运行 Fyne GUI
-	fyneUI := ui.NewFyneUI(db, wsServer)
+	fyneUI := ui.NewFyneUI(db, wsServer, cfg)
 	fyneUI.Show() // 这会阻塞直到窗口关闭
 }

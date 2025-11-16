@@ -12,6 +12,7 @@ type Config struct {
 	Database DatabaseConfig `json:"database"`
 	License  LicenseConfig  `json:"license"`
 	Browser  BrowserConfig  `json:"browser"`
+	Debug    DebugConfig    `json:"debug"`
 }
 
 // ServerConfig WebSocket 服务器配置
@@ -39,6 +40,13 @@ type BrowserConfig struct {
 	AutoInstall    bool     `json:"auto_install"`
 }
 
+// DebugConfig 调试配置
+type DebugConfig struct {
+	Enabled      bool `json:"enabled"`       // 启用调试模式
+	SkipLicense  bool `json:"skip_license"`  // 跳过 License 验证（仅调试模式下有效）
+	VerboseLog   bool `json:"verbose_log"`   // 详细日志输出
+}
+
 // Default 返回默认配置
 func Default() *Config {
 	return &Config{
@@ -61,6 +69,11 @@ func Default() *Config {
 			},
 			PluginPath:  "./browser-monitor.zip",
 			AutoInstall: true,
+		},
+		Debug: DebugConfig{
+			Enabled:     false, // 默认关闭调试模式
+			SkipLicense: false, // 默认不跳过 License
+			VerboseLog:  false, // 默认不输出详细日志
 		},
 	}
 }
