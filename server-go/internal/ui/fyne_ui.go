@@ -46,8 +46,8 @@ type FyneUI struct {
 func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer, cfg *config.Config) *FyneUI {
 	fyneApp := app.NewWithID("com.dy-live-monitor")
 	
-	// 设置主题（确保中文字体支持）
-	fyneApp.Settings().SetTheme(theme.DefaultTheme())
+	// 设置支持中文的主题
+	fyneApp.Settings().SetTheme(NewChineseTheme())
 	
 	ui := &FyneUI{
 		app:          fyneApp,
@@ -61,7 +61,7 @@ func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer, cfg *config.Config)
 		debugMode:    binding.NewString(),
 	}
 	
-	// 初始化数据（使用英文标签避免乱码）
+	// 初始化数据
 	ui.giftCount.Set("0")
 	ui.messageCount.Set("0")
 	ui.totalValue.Set("0")
@@ -69,7 +69,7 @@ func NewFyneUI(db *sql.DB, wsServer *server.WebSocketServer, cfg *config.Config)
 	
 	// 设置调试模式状态
 	if cfg.Debug.Enabled {
-		ui.debugMode.Set("DEBUG MODE")
+		ui.debugMode.Set("⚠️ 调试模式")
 	} else {
 		ui.debugMode.Set("")
 	}
@@ -95,10 +95,10 @@ func (ui *FyneUI) triggerBindingUpdates() {
 
 // Show 显示主窗口
 func (ui *FyneUI) Show() {
-	// 使用英文标题避免乱码
-	title := "Douyin Live Monitor v3.2.1"
+	// 使用中文标题
+	title := "抖音直播监控系统 v3.2.1"
 	if ui.cfg.Debug.Enabled {
-		title += " [DEBUG MODE]"
+		title += " [调试模式]"
 	}
 	
 	ui.mainWin = ui.app.NewWindow(title)
@@ -123,14 +123,14 @@ func (ui *FyneUI) createMainContent() fyne.CanvasObject {
 	// 顶部统计卡片
 	statsCard := ui.createStatsCard()
 	
-	// 创建 Tab 容器（使用英文避免乱码）
+	// 创建 Tab 容器
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Overview", ui.createOverviewTab()),
-		container.NewTabItem("Gifts", ui.createGiftsTab()),
-		container.NewTabItem("Messages", ui.createMessagesTab()),
-		container.NewTabItem("Anchors", ui.createAnchorsTab()),
-		container.NewTabItem("Segments", ui.createSegmentsTab()),
-		container.NewTabItem("Settings", ui.createSettingsTab()),
+		container.NewTabItem("📊 数据概览", ui.createOverviewTab()),
+		container.NewTabItem("🎁 礼物记录", ui.createGiftsTab()),
+		container.NewTabItem("💬 消息记录", ui.createMessagesTab()),
+		container.NewTabItem("👤 主播管理", ui.createAnchorsTab()),
+		container.NewTabItem("📈 分段记分", ui.createSegmentsTab()),
+		container.NewTabItem("⚙️ 设置", ui.createSettingsTab()),
 	)
 	
 	// 主布局
@@ -145,11 +145,11 @@ func (ui *FyneUI) createMainContent() fyne.CanvasObject {
 
 // createStatsCard 创建统计卡片
 func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
-	// 创建格式化的绑定字符串（使用英文避免乱码）
+	// 创建格式化的绑定字符串
 	giftFormatted := binding.NewString()
 	ui.giftCount.AddListener(binding.NewDataListener(func() {
 		val, _ := ui.giftCount.Get()
-		giftFormatted.Set(fmt.Sprintf("Gifts: %s", val))
+		giftFormatted.Set(fmt.Sprintf("礼物总数: %s", val))
 	}))
 	giftLabel := widget.NewLabelWithData(giftFormatted)
 	giftLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -157,7 +157,7 @@ func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
 	messageFormatted := binding.NewString()
 	ui.messageCount.AddListener(binding.NewDataListener(func() {
 		val, _ := ui.messageCount.Get()
-		messageFormatted.Set(fmt.Sprintf("Messages: %s", val))
+		messageFormatted.Set(fmt.Sprintf("消息总数: %s", val))
 	}))
 	messageLabel := widget.NewLabelWithData(messageFormatted)
 	messageLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -165,7 +165,7 @@ func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
 	valueFormatted := binding.NewString()
 	ui.totalValue.AddListener(binding.NewDataListener(func() {
 		val, _ := ui.totalValue.Get()
-		valueFormatted.Set(fmt.Sprintf("Total Value: %s", val))
+		valueFormatted.Set(fmt.Sprintf("礼物总值: %s 钻石", val))
 	}))
 	valueLabel := widget.NewLabelWithData(valueFormatted)
 	valueLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -173,7 +173,7 @@ func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
 	onlineFormatted := binding.NewString()
 	ui.onlineUsers.AddListener(binding.NewDataListener(func() {
 		val, _ := ui.onlineUsers.Get()
-		onlineFormatted.Set(fmt.Sprintf("Online: %s", val))
+		onlineFormatted.Set(fmt.Sprintf("在线用户: %s", val))
 	}))
 	onlineLabel := widget.NewLabelWithData(onlineFormatted)
 	onlineLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -216,44 +216,44 @@ func (ui *FyneUI) createStatsCard() fyne.CanvasObject {
 
 // createOverviewTab 创建数据概览 Tab
 func (ui *FyneUI) createOverviewTab() fyne.CanvasObject {
-	roomLabel := widget.NewLabel("Current Room: None")
-	statusLabel := widget.NewLabel("Status: Waiting for connection...")
+	roomLabel := widget.NewLabel("当前监控房间: 无")
+	statusLabel := widget.NewLabel("状态: 等待连接...")
 	
-	refreshBtn := widget.NewButton("Refresh Data", func() {
+	refreshBtn := widget.NewButton("刷新数据", func() {
 		ui.refreshData()
 	})
 	
-	infoText := `Real-time Monitor Guide:
+	infoText := `📊 实时监控说明
 
-1. Open browser and install extension
-2. Visit Douyin live room
-3. Extension will collect data automatically
-4. Data displays here in real-time
+1. 打开浏览器并安装插件
+2. 访问抖音直播间
+3. 插件会自动采集数据
+4. 数据实时显示在这里
 
-Features:
-- Gift statistics
-- Message records
-- Anchor management
-- Segment scoring
-- Data persistence
+当前功能：
+✅ 礼物统计
+✅ 消息记录
+✅ 主播管理
+✅ 分段记分
+✅ 数据持久化
 `
 	
 	// 如果启用调试模式，添加警告信息
 	if ui.cfg.Debug.Enabled {
 		infoText += `
-DEBUG MODE ENABLED
+⚠️  调试模式已启用
 `
 		if ui.cfg.Debug.SkipLicense {
-			infoText += `License validation skipped (Debug only)
+			infoText += `⚠️  License 验证已跳过（仅供调试）
 `
 		}
 		if ui.cfg.Debug.VerboseLog {
-			infoText += `Verbose logging enabled
+			infoText += `⚠️  详细日志已启用
 `
 		}
 		infoText += `
-WARNING: Debug mode for development only!
-Please disable in config.json for production.
+❗ 警告：调试模式仅供开发使用，
+   生产环境请在 config.json 中禁用！
 `
 	}
 	
@@ -270,22 +270,22 @@ Please disable in config.json for production.
 
 // createGiftsTab 创建礼物记录 Tab
 func (ui *FyneUI) createGiftsTab() fyne.CanvasObject {
-	// 创建礼物表格（使用英文表头）
+	// 创建礼物表格
 	ui.giftTable = widget.NewTable(
 		func() (int, int) { return 0, 6 }, // 行数, 列数
 		func() fyne.CanvasObject {
-			return widget.NewLabel("Template")
+			return widget.NewLabel("模板")
 		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			label := cell.(*widget.Label)
 			// 表头
 			if id.Row == 0 {
-				headers := []string{"Time", "User", "Gift", "Count", "Value", "Room"}
+				headers := []string{"时间", "用户", "礼物", "数量", "价值", "房间"}
 				if id.Col < len(headers) {
 					label.SetText(headers[id.Col])
 				}
 			} else {
-				label.SetText(fmt.Sprintf("Data %d-%d", id.Row, id.Col))
+				label.SetText(fmt.Sprintf("数据 %d-%d", id.Row, id.Col))
 			}
 		},
 	)
@@ -297,13 +297,13 @@ func (ui *FyneUI) createGiftsTab() fyne.CanvasObject {
 	ui.giftTable.SetColumnWidth(4, 100) // 价值
 	ui.giftTable.SetColumnWidth(5, 100) // 房间
 	
-	refreshBtn := widget.NewButton("Refresh", func() {
+	refreshBtn := widget.NewButton("刷新", func() {
 		ui.loadGiftData()
 	})
 	
-	exportBtn := widget.NewButton("Export", func() {
+	exportBtn := widget.NewButton("导出", func() {
 		// TODO: 实现导出功能
-		log.Println("Export gift data")
+		log.Println("导出礼物数据")
 	})
 	
 	toolbar := container.NewHBox(
@@ -322,21 +322,21 @@ func (ui *FyneUI) createGiftsTab() fyne.CanvasObject {
 
 // createMessagesTab 创建消息记录 Tab
 func (ui *FyneUI) createMessagesTab() fyne.CanvasObject {
-	// 创建消息表格（使用英文表头）
+	// 创建消息表格
 	ui.messageTable = widget.NewTable(
 		func() (int, int) { return 0, 4 },
 		func() fyne.CanvasObject {
-			return widget.NewLabel("Template")
+			return widget.NewLabel("模板")
 		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			label := cell.(*widget.Label)
 			if id.Row == 0 {
-				headers := []string{"Time", "User", "Content", "Type"}
+				headers := []string{"时间", "用户", "内容", "类型"}
 				if id.Col < len(headers) {
 					label.SetText(headers[id.Col])
 				}
 			} else {
-				label.SetText(fmt.Sprintf("Message %d-%d", id.Row, id.Col))
+				label.SetText(fmt.Sprintf("消息 %d-%d", id.Row, id.Col))
 			}
 		},
 	)
@@ -346,13 +346,13 @@ func (ui *FyneUI) createMessagesTab() fyne.CanvasObject {
 	ui.messageTable.SetColumnWidth(2, 400)
 	ui.messageTable.SetColumnWidth(3, 100)
 	
-	refreshBtn := widget.NewButton("Refresh", func() {
+	refreshBtn := widget.NewButton("刷新", func() {
 		ui.loadMessageData()
 	})
 	
-	clearBtn := widget.NewButton("Clear", func() {
+	clearBtn := widget.NewButton("清空", func() {
 		// TODO: 实现清空功能
-		log.Println("Clear message records")
+		log.Println("清空消息记录")
 	})
 	
 	toolbar := container.NewHBox(
@@ -371,11 +371,11 @@ func (ui *FyneUI) createMessagesTab() fyne.CanvasObject {
 
 // createAnchorsTab 创建主播管理 Tab
 func (ui *FyneUI) createAnchorsTab() fyne.CanvasObject {
-	// 主播列表（使用英文）
+	// 主播列表
 	anchorList := widget.NewList(
 		func() int { return 0 }, // TODO: 从数据库加载
 		func() fyne.CanvasObject {
-			return widget.NewLabel("Anchor Name")
+			return widget.NewLabel("主播名称")
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			// TODO: 更新列表项
@@ -384,24 +384,24 @@ func (ui *FyneUI) createAnchorsTab() fyne.CanvasObject {
 	
 	// 添加主播表单
 	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("Anchor Name")
+	nameEntry.SetPlaceHolder("主播名称")
 	
 	boundGiftsEntry := widget.NewEntry()
-	boundGiftsEntry.SetPlaceHolder("Bound Gifts (comma separated)")
+	boundGiftsEntry.SetPlaceHolder("绑定礼物（用逗号分隔）")
 	
-	addBtn := widget.NewButton("Add Anchor", func() {
+	addBtn := widget.NewButton("添加主播", func() {
 		name := nameEntry.Text
 		gifts := boundGiftsEntry.Text
 		if name != "" {
 			// TODO: 保存到数据库
-			log.Printf("Add anchor: %s, gifts: %s", name, gifts)
+			log.Printf("添加主播: %s, 礼物: %s", name, gifts)
 			nameEntry.SetText("")
 			boundGiftsEntry.SetText("")
 		}
 	})
 	
 	form := container.NewVBox(
-		widget.NewLabel("Add New Anchor"),
+		widget.NewLabel("添加新主播"),
 		nameEntry,
 		boundGiftsEntry,
 		addBtn,
@@ -409,7 +409,7 @@ func (ui *FyneUI) createAnchorsTab() fyne.CanvasObject {
 	
 	return container.NewHSplit(
 		container.NewBorder(
-			widget.NewLabel("Anchor List"),
+			widget.NewLabel("主播列表"),
 			nil, nil, nil,
 			anchorList,
 		),
@@ -420,27 +420,27 @@ func (ui *FyneUI) createAnchorsTab() fyne.CanvasObject {
 // createSegmentsTab 创建分段记分 Tab
 func (ui *FyneUI) createSegmentsTab() fyne.CanvasObject {
 	segmentEntry := widget.NewEntry()
-	segmentEntry.SetPlaceHolder("Segment name (e.g., Round 1)")
+	segmentEntry.SetPlaceHolder("分段名称（如：第一轮PK）")
 	
-	createBtn := widget.NewButton("Create New Segment", func() {
+	createBtn := widget.NewButton("创建新分段", func() {
 		name := segmentEntry.Text
 		if name != "" {
 			// TODO: 创建分段
-			log.Printf("Create segment: %s", name)
+			log.Printf("创建分段: %s", name)
 			segmentEntry.SetText("")
 		}
 	})
 	
-	endBtn := widget.NewButton("End Current Segment", func() {
+	endBtn := widget.NewButton("结束当前分段", func() {
 		// TODO: 结束分段
-		log.Println("End current segment")
+		log.Println("结束当前分段")
 	})
 	
 	// 分段列表
 	segmentList := widget.NewList(
 		func() int { return 0 },
 		func() fyne.CanvasObject {
-			return widget.NewLabel("Segment Record")
+			return widget.NewLabel("分段记录")
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
 			// TODO: 更新列表
@@ -448,7 +448,7 @@ func (ui *FyneUI) createSegmentsTab() fyne.CanvasObject {
 	)
 	
 	toolbar := container.NewVBox(
-		widget.NewLabel("Segment Management"),
+		widget.NewLabel("分段记分管理"),
 		segmentEntry,
 		container.NewHBox(createBtn, endBtn),
 		widget.NewSeparator(),
@@ -466,50 +466,50 @@ func (ui *FyneUI) createSettingsTab() fyne.CanvasObject {
 	// 端口设置
 	portEntry := widget.NewEntry()
 	portEntry.SetText("8080")
-	portEntry.SetPlaceHolder("WebSocket Port")
+	portEntry.SetPlaceHolder("WebSocket 端口")
 	
 	portForm := container.NewVBox(
-		widget.NewLabel("WebSocket Port"),
+		widget.NewLabel("WebSocket 端口"),
 		portEntry,
-		widget.NewButton("Save", func() {
+		widget.NewButton("保存", func() {
 			// TODO: 保存端口设置
-			log.Printf("Save port: %s", portEntry.Text)
+			log.Printf("保存端口: %s", portEntry.Text)
 		}),
 	)
 	
 	// 插件管理
-	installBtn := widget.NewButton("Install Browser Extension", func() {
+	installBtn := widget.NewButton("安装浏览器插件", func() {
 		// TODO: 安装插件
-		log.Println("Install browser extension")
+		log.Println("安装浏览器插件")
 	})
 	
-	removeBtn := widget.NewButton("Uninstall Browser Extension", func() {
+	removeBtn := widget.NewButton("卸载浏览器插件", func() {
 		// TODO: 卸载插件
-		log.Println("Uninstall browser extension")
+		log.Println("卸载浏览器插件")
 	})
 	
 	pluginSection := container.NewVBox(
-		widget.NewLabel("Browser Extension Management"),
+		widget.NewLabel("浏览器插件管理"),
 		installBtn,
 		removeBtn,
 	)
 	
 	// License 设置
 	licenseEntry := widget.NewEntry()
-	licenseEntry.SetPlaceHolder("Paste License Key")
+	licenseEntry.SetPlaceHolder("粘贴 License Key")
 	licenseEntry.MultiLine = true
 	licenseEntry.SetMinRowsVisible(3)
 	
-	activateBtn := widget.NewButton("Activate", func() {
+	activateBtn := widget.NewButton("激活", func() {
 		// TODO: 激活 License
-		log.Printf("Activate License: %s", licenseEntry.Text)
+		log.Printf("激活 License: %s", licenseEntry.Text)
 	})
 	
 	licenseSection := container.NewVBox(
-		widget.NewLabel("License Management"),
+		widget.NewLabel("License 管理"),
 		licenseEntry,
 		activateBtn,
-		widget.NewLabel("Status: Not Activated"),
+		widget.NewLabel("当前状态: 未激活"),
 	)
 	
 	return container.NewVBox(
