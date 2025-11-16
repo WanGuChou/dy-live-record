@@ -162,15 +162,17 @@ Edge: edge://extensions/ → 找到插件 → 点击"检查视图"
 
 ## 📝 下一步
 
-- ✅ 了解更多消息类型：查看 [README.md](./README.md)
-- ✅ 自定义服务器逻辑：查看 [../../server/README.md](../../server/README.md)
-- ✅ 集成到现有项目：参考消息格式文档
+- ✅ 了解更多功能：查看 [../README.md](../README.md)
+- ✅ Fyne GUI 使用：查看 [../README_FYNE.md](../README_FYNE.md)
+- ✅ 调试模式：查看 [../DEBUG_MODE.md](../DEBUG_MODE.md)
+- ✅ 问题排查：查看 [../README_ERRORS.md](../README_ERRORS.md)
 
 ## 💡 提示
 
-- 开发时推荐使用 `nodemon` 自动重启服务器：`npm run dev`
 - 可以在浏览器开发者工具中查看详细的日志信息
-- WebSocket断开后会自动尝试重连，无需手动操作
+- WebSocket 断开后会自动尝试重连，无需手动操作
+- 启用调试模式可跳过 License 验证（参考 DEBUG_MODE.md）
+- 支持 Windows / Linux / macOS 多平台
 
 ---
 
