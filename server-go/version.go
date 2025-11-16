@@ -2,7 +2,7 @@ package main
 
 const (
 	// Version 版本号
-	Version = "v3.1.0"
+	Version = "v3.2.1"
 
 	// BuildDate 构建日期
 	BuildDate = "2025-11-15"
