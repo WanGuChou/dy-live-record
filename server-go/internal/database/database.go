@@ -41,6 +41,11 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// GetConn 获取底层的 sql.DB 连接（用于需要 *sql.DB 的场景）
+func (db *DB) GetConn() *sql.DB {
+	return db.conn
+}
+
 // initSchema 初始化数据库表结构
 func (db *DB) initSchema() error {
 	schema := `

@@ -97,6 +97,6 @@ func main() {
 	go ui.RunSystemTray(cfg, db, wsServer, licenseManager)
 	
 	// 主线程运行 Fyne GUI
-	fyneUI := ui.NewFyneUI(db, wsServer, cfg)
+	fyneUI := ui.NewFyneUI(db.GetConn(), wsServer, cfg)
 	fyneUI.Show() // 这会阻塞直到窗口关闭
 }
