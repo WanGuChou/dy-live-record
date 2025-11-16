@@ -23,6 +23,7 @@ type WebSocketServer struct {
 	rooms         map[string]*RoomManager
 	roomsMu       sync.RWMutex
 	upgrader      websocket.Upgrader
+	started       chan bool // 用于通知服务器已启动
 }
 
 // RoomManager 房间管理器
@@ -41,6 +42,7 @@ func NewWebSocketServer(port int, db *database.DB) *WebSocketServer {
 		giftAllocator: NewGiftAllocator(db.GetConnection()),
 		clients:       make(map[*websocket.Conn]bool),
 		rooms:         make(map[string]*RoomManager),
+		started:       make(chan bool, 1),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // 允许所有来源（生产环境应限制）
@@ -55,19 +57,37 @@ func (s *WebSocketServer) Start() error {
 	http.HandleFunc("/health", s.handleHealth)
 	
 	addr := fmt.Sprintf(":%d", s.port)
-	log.Printf("🌐 WebSocket 服务器监听: %s", addr)
-	return http.ListenAndServe(addr, nil)
+	
+	// 在单独的 goroutine 中启动服务器
+	go func() {
+		log.Printf("🌐 WebSocket 服务器正在启动，监听端口: %d", s.port)
+		log.Printf("📍 WebSocket 地址: ws://localhost:%d/ws", s.port)
+		log.Printf("📍 健康检查地址: http://localhost:%d/health", s.port)
+		
+		// 通知服务器已准备好监听
+		s.started <- true
+		
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Fatalf("❌ WebSocket 服务器启动失败: %v", err)
+		}
+	}()
+	
+	// 等待服务器启动
+	<-s.started
+	return nil
 }
 
 // handleWebSocket 处理WebSocket连接
 func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	log.Printf("🔌 收到 WebSocket 连接请求: %s", r.RemoteAddr)
+	
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("❌ WebSocket 升级失败: %v", err)
 		return
 	}
 
-	log.Printf("✅ 新客户端连接: %s", conn.RemoteAddr())
+	log.Printf("✅ WebSocket 连接成功: %s", conn.RemoteAddr())
 
 	s.clientsMu.Lock()
 	s.clients[conn] = true
@@ -174,8 +194,31 @@ func (s *WebSocketServer) handleRequest(data map[string]interface{}) {
 
 // handleHealth 健康检查接口
 func (s *WebSocketServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "OK")
+	
+	s.clientsMu.RLock()
+	clientCount := len(s.clients)
+	s.clientsMu.RUnlock()
+	
+	s.roomsMu.RLock()
+	roomCount := len(s.rooms)
+	s.roomsMu.RUnlock()
+	
+	response := map[string]interface{}{
+		"status":       "ok",
+		"port":         s.port,
+		"clients":      clientCount,
+		"rooms":        roomCount,
+		"endpoints": map[string]string{
+			"websocket": fmt.Sprintf("ws://localhost:%d/ws", s.port),
+			"health":    fmt.Sprintf("http://localhost:%d/health", s.port),
+		},
+	}
+	
+	json.NewEncoder(w).Encode(response)
+	
+	log.Printf("💊 健康检查: 客户端=%d, 房间=%d", clientCount, roomCount)
 }
 
 // getOrCreateRoom 获取或创建房间管理器

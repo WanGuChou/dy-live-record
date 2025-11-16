@@ -95,13 +95,17 @@ func main() {
 	}
 
 	// 4. 启动 WebSocket 服务器
+	log.Printf("📡 正在启动 WebSocket 服务器 (端口: %d)...", cfg.Server.Port)
 	wsServer := server.NewWebSocketServer(cfg.Server.Port, db)
-	go func() {
-		if err := wsServer.Start(); err != nil {
-			log.Fatalf("❌ WebSocket 服务器启动失败: %v", err)
-		}
-	}()
-	log.Printf("✅ WebSocket 服务器启动成功 (端口: %d)", cfg.Server.Port)
+	
+	if err := wsServer.Start(); err != nil {
+		log.Fatalf("❌ WebSocket 服务器启动失败: %v", err)
+	}
+	
+	log.Printf("✅ WebSocket 服务器启动成功！")
+	log.Printf("   📍 连接地址: ws://localhost:%d/ws", cfg.Server.Port)
+	log.Printf("   📍 健康检查: http://localhost:%d/health", cfg.Server.Port)
+	log.Printf("   💡 提示: 浏览器插件需连接到此地址")
 
 	// 5. 启动 Fyne GUI（主窗口）
 	log.Println("✅ 启动图形界面...")
