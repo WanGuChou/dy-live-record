@@ -14,9 +14,9 @@ const websockets = new Map(); // requestId -> WebSocket info
 // 从存储中加载配置
 async function loadConfig() {
   const result = await chrome.storage.local.get(['serverUrl', 'isEnabled', 'filterKeywords']);
-  serverUrl = result.serverUrl || 'ws://localhost:8080/monitor';
+  serverUrl = result.serverUrl || 'ws://localhost:8080/monitor'; // 使用新的 /monitor 路径
   isEnabled = result.isEnabled !== undefined ? result.isEnabled : false;
-  filterKeywords = result.filterKeywords || '';
+  filterKeywords = result.filterKeywords || 'live.douyin.com,webcast'; // 默认过滤抖音直播
   
   console.log('⚙️ CDP Monitor 配置已加载:', { serverUrl, isEnabled, filterKeywords });
   

@@ -34,7 +34,7 @@ echo.
 
 echo [3/3] WebSocket 连接信息
 echo ========================================
-echo WebSocket 地址: ws://localhost:!PORT!/ws
+echo WebSocket 地址: ws://localhost:!PORT!/monitor
 echo 健康检查地址:   http://localhost:!PORT!/health
 echo ========================================
 echo.

@@ -113,7 +113,7 @@
         
         <div class="input-group">
             <label for="wsUrl">WebSocket 地址:</label>
-            <input type="text" id="wsUrl" value="ws://localhost:8080/ws" placeholder="ws://localhost:8080/ws">
+            <input type="text" id="wsUrl" value="ws://localhost:8080/monitor" placeholder="ws://localhost:8080/monitor">
         </div>
         
         <div>
@@ -231,7 +231,7 @@
         
         function testHealth() {
             const url = document.getElementById('wsUrl').value;
-            const healthUrl = url.replace('/ws', '/health').replace('ws://', 'http://').replace('wss://', 'https://');
+            const healthUrl = url.replace('/monitor', '/health').replace('ws://', 'http://').replace('wss://', 'https://');
             
             log(`正在测试健康检查: ${healthUrl}`, 'info');
             
