@@ -126,7 +126,8 @@ func (m *Manager) ValidateOnline(licenseKey string) (bool, string, error) {
 		"hardware_fingerprint":  fingerprint,
 	}
 
-	reqBody, _ := json.Marshal(req)
+	_, _ = json.Marshal(req)
+	// TODO: 实现在线校验（发送 reqBody 到服务器）
 	resp, err := http.Post(m.serverURL+"/api/v1/licenses/validate", "application/json", nil)
 	if err != nil {
 		return false, "", err
