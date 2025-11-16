@@ -84,12 +84,13 @@ func main() {
 	}()
 	log.Printf("✅ WebSocket 服务器启动成功 (端口: %d)", cfg.Server.Port)
 
-	// 5. 启动系统托盘 UI
-	log.Println("✅ 启动系统托盘...")
-	ui.RunSystemTray(cfg, db, wsServer, licenseManager)
+	// 5. 启动 Fyne GUI（主窗口）
+	log.Println("✅ 启动图形界面...")
 	
-	// 注意：WebView2 主界面暂时禁用，避免 Windows SDK 依赖问题
-	// 如需启用，请安装完整的 Windows 10 SDK
-	// mainWindow := ui.NewMainWindow(db, wsServer)
-	// mainWindow.Show()
+	// 在单独的 goroutine 中运行系统托盘
+	go ui.RunSystemTray(cfg, db, wsServer, licenseManager)
+	
+	// 主线程运行 Fyne GUI
+	fyneUI := ui.NewFyneUI(db, wsServer)
+	fyneUI.Show() // 这会阻塞直到窗口关闭
 }
