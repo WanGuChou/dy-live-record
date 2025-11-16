@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -263,12 +264,22 @@ func (s *WebSocketServer) saveMessageRecord(roomID string, sessionID int64, msg 
 
 // extractRoomID 从URL中提取房间号
 func extractRoomID(url string) string {
-	// 简化实现：从URL中提取房间号
-	// 例如: wss://webcast100-ws-web-hl.douyin.com/...?room_id=123456
-	// 实际应使用URL解析库
-	if idx := len(url) - 1; idx >= 0 {
-		// TODO: 实现完整的URL解析
-		return "unknown"
+	// 从 URL 参数中提取 room_id 或 wss_push_room_id
+	if idx := strings.Index(url, "room_id="); idx >= 0 {
+		start := idx + 8
+		end := strings.IndexAny(url[start:], "&")
+		if end > 0 {
+			return url[start : start+end]
+		}
+		return url[start:]
 	}
-	return ""
+	if idx := strings.Index(url, "wss_push_room_id="); idx >= 0 {
+		start := idx + 17
+		end := strings.IndexAny(url[start:], "&")
+		if end > 0 {
+			return url[start : start+end]
+		}
+		return url[start:]
+	}
+	return "unknown"
 }
