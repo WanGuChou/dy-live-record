@@ -39,12 +39,12 @@
 ### 启动服务器
 
 ```bash
-cd ../../server
-npm install
-npm start
+# 启动 Go 后端服务
+cd ../server-go
+.\dy-live-monitor.exe
 ```
 
-服务器将在 `ws://localhost:8080/monitor` 运行。
+服务器将在 `ws://localhost:8080` 运行。
 
 ### 监控数据
 

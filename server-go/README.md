@@ -236,8 +236,8 @@ go build -o dy-live-monitor.exe main.go
 
 1. **Protobuf 解析是核心**：`parser/douyin.go` 必须完全移植 `dy_ws_msg.js` 的逻辑。
 2. **许可证系统**：需要生成 RSA 密钥对，公钥嵌入客户端。
-3. **CGO 依赖**：`go-sqlite3` 需要 CGO，Windows 编译需要 MinGW。
-4. **Webview2 依赖**：需要系统安装 Microsoft Edge WebView2 Runtime。
+3. **CGO 依赖**：`go-sqlite3` 和 `fyne` 需要 CGO，Windows 编译需要 MinGW-w64。
+4. **OpenGL 依赖**：Fyne 需要 OpenGL 2.0+ 支持（通常系统已包含）。
 
 ---
 

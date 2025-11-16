@@ -6,11 +6,11 @@
 |---------|-------|------|
 | GCC 相关 | `gcc not found`, `cgo` | [错误 1](#错误-1-gcc-command-not-found) |
 | 依赖相关 | `missing go.sum`, `go mod` | [错误 2](#错误-2-missing-gosum-entry) |
-| 插件相关 | `pattern assets/*`, `embed` | [错误 3](#错误-3-pattern-assets-no-matching-files-found) |
+| Fyne 相关 | `OpenGL`, `display` | [错误 3](#错误-3-fyne-opengl-相关错误) |
 | 网络相关 | `timeout`, `connection refused` | [错误 4](#错误-4-go-downloading--connection-timed-out) |
-| WebView2 | `WebView2 Runtime` | [错误 5](#错误-5-webview2-runtime-未安装) |
+| License | `license validation failed` | [错误 5](#错误-5-license-验证失败) |
 | MySQL | `connection refused`, `access denied` | [错误 6](#错误-6-mysql-连接失败) |
-| 构建顺序 | `BUILD_ALL.bat` | [错误 7](#错误-7-buildallbat-执行顺序错误) |
+| 构建问题 | `BUILD_WITH_FYNE.bat` | [错误 7](#错误-7-构建脚本执行错误) |
 
 ---
 
@@ -114,61 +114,67 @@ go mod tidy
 
 ---
 
-### 错误 3: `pattern assets/*: no matching files found`
+### 错误 3: Fyne OpenGL 相关错误
 
 #### 完整错误信息
 ```
-internal\ui\settings.go:15:12: pattern assets/*: no matching files found
+failed to initialize GL
+panic: glfw: failed to initialize: GLFWError
+Could not create GL context
+runtime error: cannot create OpenGL context
 ```
 
 #### 错误原因
-- `browser-monitor.zip` 还未生成
-- `server-go/assets/` 目录不存在
-- `//go:embed` 找不到文件
+- 显卡驱动过旧或未安装
+- 虚拟机环境不支持 OpenGL
+- 远程桌面环境限制
+- OpenGL 版本过低（需要 >= 2.0）
 
 #### 解决方案
 
-**Step 1: 创建 assets 目录**
+**方法 1: 更新显卡驱动（推荐）**
 ```bash
-mkdir server-go\assets
+# Windows
+# 访问显卡厂商官网下载最新驱动
+# NVIDIA: https://www.nvidia.com/drivers
+# AMD: https://www.amd.com/drivers
+# Intel: https://www.intel.com/drivers
 ```
 
-**Step 2: 打包 browser-monitor**
+**方法 2: 使用软件渲染（虚拟机环境）**
 ```bash
-cd browser-monitor
-pack.bat
+# 设置环境变量
+set LIBGL_ALWAYS_SOFTWARE=1
+set GALLIUM_DRIVER=llvmpipe
+
+# 运行程序
+.\dy-live-monitor.exe
 ```
 
-**Step 3: 验证文件生成**
+**方法 3: 使用系统托盘版本（无需 OpenGL）**
 ```bash
-dir ..\server-go\assets\browser-monitor.zip
+# 编译无 GUI 版本
+cd server-go
+go mod edit -droprequire=fyne.io/fyne/v2
+go mod tidy
+go build -ldflags="-H windowsgui" -o dy-live-monitor.exe .
 ```
 
-**预期输出**:
-```
-2025/11/15  10:30            512,345 browser-monitor.zip
-```
-
-**Step 4: 重新编译 server-go**
+**方法 4: 检查 OpenGL 支持**
 ```bash
-cd ..\server-go
-build.bat
+# 下载 OpenGL Extensions Viewer
+# https://www.realtech-vr.com/glview/
+
+# 或使用 GPU-Z 查看显卡信息
 ```
 
-**如果仍然失败**:
-
-编辑 `server-go/internal/ui/settings.go`：
-```go
-// 修改前
-//go:embed assets/*
-var assets embed.FS
-
-// 修改后
-//go:embed assets/browser-monitor.zip
-var embeddedPlugin []byte
+**Step 4: 重新编译**
+```bash
+cd server-go
+go build -v -o dy-live-monitor.exe .
 ```
 
-然后重新编译。
+**如果还有问题**: 参考 [Fyne 官方文档](https://docs.fyne.io/started/)
 
 ---
 
@@ -215,10 +221,10 @@ go mod download
 
 **方法 4: 手动下载依赖包**
 ```bash
-# 逐个下载
+# 逐个下载 Fyne 版本依赖
+go get fyne.io/fyne/v2@v2.4.3
 go get github.com/gorilla/websocket@v1.5.1
 go get github.com/mattn/go-sqlite3@v1.14.18
-go get github.com/webview/webview_go@latest
 go get github.com/getlantern/systray@v1.2.2
 ```
 
@@ -234,41 +240,70 @@ go get github.com/getlantern/systray@v1.2.2
 
 ---
 
-### 错误 5: WebView2 Runtime 未安装
+### 错误 5: License 验证失败
 
 #### 错误信息
 ```
-⚠️  检测到关键依赖缺失
-WebView2 Runtime: 未检测到，需要安装 WebView2 Runtime
+❌ License 验证失败: invalid signature
+❌ License 验证失败: license expired
+❌ License 验证失败: hardware mismatch
+未找到有效许可证，请激活软件
 ```
 
 #### 错误原因
-- Windows 10/11 未自带 WebView2
-- WebView2 Runtime 未安装
+- License 密钥无效或被篡改
+- License 已过期
+- 硬件指纹不匹配
+- License 服务器无法连接
+- 未配置 License
 
 #### 解决方案
 
-**方法 1: 自动安装（推荐）**
+**方法 1: 启用调试模式（开发/测试环境）**
 ```bash
-# 启动 server-go
-dy-live-monitor.exe
+# 编辑 server-go/config.json
+{
+  "debug": {
+    "enabled": true,
+    "skip_license": true
+  }
+}
 
-# 出现提示时输入 y
-是否尝试自动安装 WebView2? (y/n): y
-
-# 程序会自动下载并安装
+# 或使用预设的调试配置
+cd server-go
+copy config.debug.json config.json
 ```
 
-**方法 2: 手动下载安装**
-1. 访问：https://developer.microsoft.com/en-us/microsoft-edge/webview2/
-2. 下载 "Evergreen Standalone Installer"
-3. 运行安装程序
-4. 重启 `dy-live-monitor.exe`
+**方法 2: 获取并激活 License**
+```bash
+# 1. 联系管理员获取 License Key
+# 2. 在程序设置页面粘贴 License
+# 3. 点击激活按钮
+```
 
-**方法 3: 使用 Edge 浏览器（包含 WebView2）**
-- Windows 11 和 Windows 10 (20H1+) 自带 Edge
-- Edge 包含 WebView2 Runtime
-- 确保 Edge 已更新到最新版本
+**方法 3: 检查 License 服务器**
+```bash
+# 确保能访问 License 服务器
+ping your-license-server
+
+# 检查配置文件中的 server_url
+```
+
+**方法 4: 查看详细错误日志**
+```bash
+# 启用详细日志
+{
+  "debug": {
+    "enabled": true,
+    "verbose_log": true
+  }
+}
+
+# 运行并查看日志
+.\dy-live-monitor.exe > license_debug.log 2>&1
+```
+
+**参考文档**: [DEBUG_MODE.md](DEBUG_MODE.md)
 
 ---
 
@@ -410,7 +445,7 @@ del server-go\dy-live-monitor.exe
 del server-active\dy-live-license-server.exe
 
 # 重新构建
-BUILD_ALL.bat
+BUILD_WITH_FYNE.bat
 ```
 
 ### 3. 逐步调试
@@ -445,7 +480,7 @@ go build -v
 2. **收集错误信息**:
    ```bash
    # 运行构建并保存日志
-   BUILD_ALL.bat > build.log 2>&1
+   BUILD_WITH_FYNE.bat > build.log 2>&1
    
    # 查看日志
    type build.log

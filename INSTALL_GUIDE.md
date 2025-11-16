@@ -8,8 +8,8 @@
 - **磁盘空间**: >= 500 MB
 
 ### Windows 平台额外要求
-- **WebView2 Runtime**: 会自动检测并安装
-- **MinGW-w64**: SQLite 需要 CGO 支持
+- **MinGW-w64**: Fyne 和 SQLite 需要 CGO 支持
+- **显卡驱动**: Fyne 需要 OpenGL 支持（通常已安装）
 
 ### server-active 额外要求
 - **MySQL**: >= 8.0
@@ -51,12 +51,15 @@ gcc --version
 #### Linux
 
 ```bash
-# Ubuntu/Debian
+# Ubuntu/Debian (Fyne 依赖)
 sudo apt-get update
-sudo apt-get install -y gcc pkg-config libwebkit2gtk-4.0-dev
+sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
 
-# CentOS/RHEL
-sudo yum install -y gcc gtk3-devel webkit2gtk3-devel
+# Fedora
+sudo dnf install -y gcc libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel mesa-libGL-devel libXi-devel libXxf86vm-devel
+
+# Arch
+sudo pacman -S base-devel libx11 libxcursor libxrandr libxinerama mesa libxi libxxf86vm
 ```
 
 #### Mac
@@ -93,8 +96,11 @@ go env -w GOPROXY=https://goproxy.cn,direct
 #### Windows
 
 ```bash
-# 以管理员身份运行（推荐）
-BUILD_ALL.bat
+# Fyne GUI 版本（推荐）
+BUILD_WITH_FYNE.bat
+
+# 或使用交互式脚本
+QUICK_START.bat
 ```
 
 **构建顺序**:
