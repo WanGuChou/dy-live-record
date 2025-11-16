@@ -2,7 +2,6 @@ package ui
 
 import (
 	"archive/zip"
-	_ "embed"
 	"fmt"
 	"io"
 	"log"
@@ -12,8 +11,7 @@ import (
 	"runtime"
 )
 
-// 尝试嵌入插件文件，如果不存在则在运行时加载
-//go:embed assets/browser-monitor.zip
+// embeddedPlugin 插件数据（编译时不嵌入，运行时从外部加载）
 var embeddedPlugin []byte
 
 // SettingsManager 设置管理器
