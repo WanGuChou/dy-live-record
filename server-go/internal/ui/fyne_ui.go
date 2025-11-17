@@ -21,7 +21,11 @@ import (
 	"dy-live-monitor/internal/server"
 )
 
-const maxStoredMessages = 200
+const (
+	maxStoredMessages    = 200
+	messageFilterAll     = "全部消息"
+	messageFilterUnknown = "未分类"
+)
 
 func init() {
 	// 设置中文字体：解决中文乱码问题
@@ -62,26 +66,55 @@ type MessagePair struct {
 
 // ParsedMessageRecord 保存解析后的消息与原始消息的关联
 type ParsedMessageRecord struct {
-	ID        int64
-	RawID     int64
-	Summary   string
-	Detail    map[string]interface{}
-	Timestamp time.Time
+	ID          int64
+	RawID       int64
+	Summary     string
+	Detail      map[string]interface{}
+	Timestamp   time.Time
+	MessageType string
 }
 
 // RoomTab 房间Tab数据
 type RoomTab struct {
-	RoomID        string
-	Tab           *container.TabItem
-	RawMessages   *widget.List
-	ParsedMsgs    *widget.List
-	RawData       []string
-	MessagePairs  []*MessagePair // 消息对列表
-	ParsedRecords []*ParsedMessageRecord
-	StatsLabel    *widget.Label
-	DetailWindow  fyne.Window // 详情窗口
-	nextRawID     int64
-	nextParsedID  int64
+	RoomID            string
+	Tab               *container.TabItem
+	RawMessages       *widget.List
+	ParsedMsgs        *widget.List
+	RawData           []string
+	MessagePairs      []*MessagePair // 消息对列表
+	ParsedRecords     []*ParsedMessageRecord
+	filteredParsed    []*ParsedMessageRecord
+	StatsLabel        *widget.Label
+	DetailWindow      fyne.Window // 详情窗口
+	nextRawID         int64
+	nextParsedID      int64
+	messageTypeFilter string
+	filterSelect      *widget.Select
+}
+
+func normalizeMessageType(mt string) string {
+	mt = strings.TrimSpace(mt)
+	if mt == "" {
+		return messageFilterUnknown
+	}
+	return mt
+}
+
+func extractMessageTypeFromMessage(message string) string {
+	text := strings.TrimSpace(message)
+	if text == "" {
+		return ""
+	}
+	marker := "类型:"
+	idx := strings.Index(text, marker)
+	if idx < 0 {
+		return ""
+	}
+	after := text[idx+len(marker):]
+	if sep := strings.Index(after, "|"); sep >= 0 {
+		after = after[:sep]
+	}
+	return strings.TrimSpace(after)
 }
 
 // FyneUI Fyne 图形界面
@@ -614,13 +647,25 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 
 	// 创建房间Tab
 	roomTab := &RoomTab{
-		RoomID:        roomID,
-		RawData:       make([]string, 0, maxStoredMessages),
-		MessagePairs:  make([]*MessagePair, 0, maxStoredMessages),
-		ParsedRecords: make([]*ParsedMessageRecord, 0, maxStoredMessages),
-		nextRawID:     1,
-		nextParsedID:  1,
+		RoomID:            roomID,
+		RawData:           make([]string, 0, maxStoredMessages),
+		MessagePairs:      make([]*MessagePair, 0, maxStoredMessages),
+		ParsedRecords:     make([]*ParsedMessageRecord, 0, maxStoredMessages),
+		filteredParsed:    make([]*ParsedMessageRecord, 0, maxStoredMessages),
+		nextRawID:         1,
+		nextParsedID:      1,
+		messageTypeFilter: messageFilterAll,
 	}
+
+	roomTab.filterSelect = widget.NewSelect([]string{messageFilterAll}, func(value string) {
+		if value == "" {
+			value = messageFilterAll
+		}
+		roomTab.messageTypeFilter = value
+		roomTab.applyParsedFilter()
+	})
+	roomTab.filterSelect.PlaceHolder = "筛选消息类型"
+	roomTab.filterSelect.SetSelected(messageFilterAll)
 
 	// 创建统计标签
 	roomTab.StatsLabel = widget.NewLabel(fmt.Sprintf("房间: %s | 消息: 0 条", roomID))
@@ -646,7 +691,7 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 			return
 		}
 		rawID := roomTab.MessagePairs[id].ID
-		if parsedIndex := roomTab.findParsedIndexByRawID(rawID); parsedIndex >= 0 {
+		if parsedIndex := roomTab.ensureRecordVisible(rawID); parsedIndex >= 0 {
 			roomTab.ParsedMsgs.Select(parsedIndex)
 			roomTab.ParsedMsgs.ScrollTo(parsedIndex)
 		}
@@ -655,25 +700,25 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	// 创建解析后消息列表（支持点击查看详情）
 	roomTab.ParsedMsgs = widget.NewList(
 		func() int {
-			return len(roomTab.ParsedRecords)
+			return len(roomTab.filteredParsed)
 		},
 		func() fyne.CanvasObject {
 			return widget.NewLabel("消息模板")
 		},
 		func(id widget.ListItemID, item fyne.CanvasObject) {
-			if id < len(roomTab.ParsedRecords) {
-				item.(*widget.Label).SetText(roomTab.ParsedRecords[id].Summary)
+			if id < len(roomTab.filteredParsed) {
+				item.(*widget.Label).SetText(roomTab.filteredParsed[id].Summary)
 			}
 		},
 	)
 
 	// 解析消息点击事件：显示完整详情并联动原始记录
 	roomTab.ParsedMsgs.OnSelected = func(id widget.ListItemID) {
-		if id < 0 || id >= len(roomTab.ParsedRecords) {
+		if id < 0 || id >= len(roomTab.filteredParsed) {
 			return
 		}
 
-		if rawID := roomTab.ParsedRecords[id].RawID; rawID != 0 {
+		if rawID := roomTab.filteredParsed[id].RawID; rawID != 0 {
 			roomTab.selectRawByID(rawID)
 		}
 
@@ -687,8 +732,12 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 		container.NewScroll(roomTab.RawMessages),
 	)
 
-	parsedContainer := container.NewBorder(
+	filterHeader := container.NewVBox(
 		widget.NewLabel("📋 解析后的消息"),
+		roomTab.filterSelect,
+	)
+	parsedContainer := container.NewBorder(
+		filterHeader,
 		nil, nil, nil,
 		container.NewScroll(roomTab.ParsedMsgs),
 	)
@@ -712,15 +761,91 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	ui.tabContainer.Select(roomTab.Tab)
 
 	log.Printf("✅ 房间 Tab 创建成功: %s", roomID)
+	roomTab.rebuildFilterState()
 }
 
 func (roomTab *RoomTab) findParsedIndexByRawID(rawID int64) int {
-	for i := len(roomTab.ParsedRecords) - 1; i >= 0; i-- {
-		if roomTab.ParsedRecords[i].RawID == rawID {
+	for i := len(roomTab.filteredParsed) - 1; i >= 0; i-- {
+		if roomTab.filteredParsed[i].RawID == rawID {
 			return i
 		}
 	}
 	return -1
+}
+
+func (roomTab *RoomTab) findRecordByRawID(rawID int64) *ParsedMessageRecord {
+	for _, rec := range roomTab.ParsedRecords {
+		if rec.RawID == rawID {
+			return rec
+		}
+	}
+	return nil
+}
+
+func (roomTab *RoomTab) ensureRecordVisible(rawID int64) int {
+	if idx := roomTab.findParsedIndexByRawID(rawID); idx >= 0 {
+		return idx
+	}
+	rec := roomTab.findRecordByRawID(rawID)
+	if rec == nil || roomTab.filterSelect == nil {
+		return -1
+	}
+	target := normalizeMessageType(rec.MessageType)
+	if roomTab.messageTypeFilter == target {
+		return -1
+	}
+	roomTab.filterSelect.SetSelected(target)
+	return roomTab.findParsedIndexByRawID(rawID)
+}
+
+func optionExists(value string, options []string) bool {
+	for _, opt := range options {
+		if opt == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (roomTab *RoomTab) updateFilterOptions() {
+	seen := make(map[string]bool)
+	options := []string{messageFilterAll}
+	for _, rec := range roomTab.ParsedRecords {
+		key := normalizeMessageType(rec.MessageType)
+		if !seen[key] {
+			seen[key] = true
+			options = append(options, key)
+		}
+	}
+	if roomTab.filterSelect != nil {
+		roomTab.filterSelect.Options = options
+		roomTab.filterSelect.Refresh()
+		if !optionExists(roomTab.messageTypeFilter, options) {
+			roomTab.messageTypeFilter = messageFilterAll
+			roomTab.filterSelect.SetSelected(messageFilterAll)
+		}
+	}
+}
+
+func (roomTab *RoomTab) applyParsedFilter() {
+	filter := roomTab.messageTypeFilter
+	roomTab.filteredParsed = make([]*ParsedMessageRecord, 0, len(roomTab.ParsedRecords))
+	for _, rec := range roomTab.ParsedRecords {
+		if filter == "" || filter == messageFilterAll || normalizeMessageType(rec.MessageType) == filter {
+			roomTab.filteredParsed = append(roomTab.filteredParsed, rec)
+		}
+	}
+	if roomTab.ParsedMsgs != nil {
+		roomTab.ParsedMsgs.Refresh()
+		if len(roomTab.filteredParsed) > 0 {
+			roomTab.ParsedMsgs.ScrollToBottom()
+		}
+	}
+}
+
+func (roomTab *RoomTab) rebuildFilterState() {
+	roomTab.updateFilterOptions()
+	roomTab.applyParsedFilter()
 }
 
 func (roomTab *RoomTab) latestRawID() (int64, bool) {
@@ -774,11 +899,21 @@ func (roomTab *RoomTab) updateStats(roomID string) {
 func (ui *FyneUI) appendParsedRecord(roomTab *RoomTab, roomID string, message string, detail map[string]interface{}) {
 	timestamp := time.Now()
 	summary := fmt.Sprintf("[%s] %s", timestamp.Format("15:04:05"), message)
+	messageType := ""
+	if detail != nil {
+		if mt, ok := detail["messageType"].(string); ok {
+			messageType = mt
+		}
+	}
+	if messageType == "" {
+		messageType = extractMessageTypeFromMessage(message)
+	}
 	record := &ParsedMessageRecord{
-		ID:        roomTab.nextParsedID,
-		Summary:   summary,
-		Detail:    detail,
-		Timestamp: timestamp,
+		ID:          roomTab.nextParsedID,
+		Summary:     summary,
+		Detail:      detail,
+		Timestamp:   timestamp,
+		MessageType: messageType,
 	}
 	roomTab.nextParsedID++
 	if rawID, ok := roomTab.latestRawID(); ok {
@@ -789,10 +924,7 @@ func (ui *FyneUI) appendParsedRecord(roomTab *RoomTab, roomID string, message st
 		roomTab.ParsedRecords = roomTab.ParsedRecords[1:]
 	}
 	roomTab.updateStats(roomID)
-	if roomTab.ParsedMsgs != nil {
-		roomTab.ParsedMsgs.Refresh()
-		roomTab.ParsedMsgs.ScrollToBottom()
-	}
+	roomTab.rebuildFilterState()
 }
 
 // AddRawMessage 添加原始消息
@@ -856,11 +988,11 @@ func (ui *FyneUI) AddParsedMessageWithDetail(roomID string, message string, deta
 
 // showMessageDetail 显示消息详情对话框
 func (ui *FyneUI) showMessageDetail(roomTab *RoomTab, id widget.ListItemID) {
-	if id < 0 || id >= len(roomTab.ParsedRecords) {
+	if id < 0 || id >= len(roomTab.filteredParsed) {
 		return
 	}
 
-	record := roomTab.ParsedRecords[id]
+	record := roomTab.filteredParsed[id]
 	rawMessage := ""
 	var rawTimestamp time.Time
 	if record.RawID != 0 {
