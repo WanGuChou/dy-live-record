@@ -33,6 +33,8 @@ type WebSocketServer struct {
 	upgrader      websocket.Upgrader
 	started       chan bool // 用于通知服务器已启动
 	uiUpdater     UIUpdater // UI更新器
+	manualPullers map[string]*ManualRoomPuller
+	manualMu      sync.Mutex
 }
 
 // RoomManager 房间管理器
@@ -51,6 +53,7 @@ func NewWebSocketServer(port int, db *database.DB) *WebSocketServer {
 		giftAllocator: NewGiftAllocator(db.GetConnection()),
 		clients:       make(map[*websocket.Conn]bool),
 		rooms:         make(map[string]*RoomManager),
+		manualPullers: make(map[string]*ManualRoomPuller),
 		started:       make(chan bool, 1),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -158,6 +161,34 @@ func (s *WebSocketServer) handleMessage(message []byte) {
 // SetUIUpdater 设置UI更新器
 func (s *WebSocketServer) SetUIUpdater(updater UIUpdater) {
 	s.uiUpdater = updater
+}
+
+// StartManualRoom 手动添加房间并尝试直接拉取抖音消息
+func (s *WebSocketServer) StartManualRoom(roomID, wsURL string) error {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" {
+		return fmt.Errorf("房间号不能为空")
+	}
+
+	if wsURL == "" {
+		wsURL = buildDefaultDouyinWS(roomID)
+	}
+	wsURL = ensureRoomParam(wsURL, roomID)
+
+	s.getOrCreateRoom(roomID)
+
+	puller := NewManualRoomPuller(s, roomID, wsURL)
+
+	s.manualMu.Lock()
+	if old, ok := s.manualPullers[roomID]; ok {
+		old.Stop()
+	}
+	s.manualPullers[roomID] = puller
+	s.manualMu.Unlock()
+
+	go puller.Start()
+	log.Printf("📡 手动订阅房间 %s的 WebSocket: %s", roomID, wsURL)
+	return nil
 }
 
 // handleDouyinMessage 处理抖音消息
