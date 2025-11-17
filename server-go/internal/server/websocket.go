@@ -64,23 +64,23 @@ func NewWebSocketServer(port int, db *database.DB) *WebSocketServer {
 func (s *WebSocketServer) Start() error {
 	http.HandleFunc("/monitor", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
-	
+
 	addr := fmt.Sprintf(":%d", s.port)
-	
+
 	// 在单独的 goroutine 中启动服务器
 	go func() {
 		log.Printf("🌐 WebSocket 服务器正在启动，监听端口: %d", s.port)
 		log.Printf("📍 WebSocket 地址: ws://localhost:%d/monitor", s.port)
 		log.Printf("📍 健康检查地址: http://localhost:%d/health", s.port)
-		
+
 		// 通知服务器已准备好监听
 		s.started <- true
-		
+
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			log.Fatalf("❌ WebSocket 服务器启动失败: %v", err)
 		}
 	}()
-	
+
 	// 等待服务器启动
 	<-s.started
 	return nil
@@ -89,7 +89,7 @@ func (s *WebSocketServer) Start() error {
 // handleWebSocket 处理WebSocket连接
 func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("🔌 收到 WebSocket 连接请求: %s", r.RemoteAddr)
-	
+
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("❌ WebSocket 升级失败: %v", err)
@@ -141,8 +141,10 @@ func (s *WebSocketServer) handleMessage(message []byte) {
 
 	// 根据消息类型处理
 	switch msgType {
-	case "websocket_frame_received", "websocket_frame_sent":
-		s.handleDouyinMessage(data)
+	case "websocket_frame_received":
+		s.handleDouyinMessage(data, true)
+	case "websocket_frame_sent":
+		s.handleDouyinMessage(data, false)
 	case "cdp_request":
 		s.handleRequest(data)
 	case "heartbeat":
@@ -159,7 +161,7 @@ func (s *WebSocketServer) SetUIUpdater(updater UIUpdater) {
 }
 
 // handleDouyinMessage 处理抖音消息
-func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
+func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}, shouldParse bool) {
 	url, _ := data["url"].(string)
 	payloadData, _ := data["payloadData"].(string)
 
@@ -175,12 +177,12 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 
 	// 获取或创建房间管理器
 	room := s.getOrCreateRoom(roomID)
-	
+
 	// 通知UI创建房间Tab
 	if s.uiUpdater != nil {
 		s.uiUpdater.AddOrUpdateRoom(roomID)
 	}
-	
+
 	// 添加原始消息到UI
 	if s.uiUpdater != nil {
 		// 截取前200字符显示
@@ -191,11 +193,15 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 		s.uiUpdater.AddRawMessage(roomID, fmt.Sprintf("URL: %s\nPayload: %s", url, displayData))
 	}
 
+	if !shouldParse {
+		return
+	}
+
 	// 解析抖音消息
 	parsedMessages, err := room.Parser.ParseMessage(payloadData, url)
 	if err != nil {
 		log.Printf("❌ [房间 %s] 解析失败: %v", roomID, err)
-		
+
 		// 添加错误到UI
 		if s.uiUpdater != nil {
 			s.uiUpdater.AddParsedMessage(roomID, fmt.Sprintf("❌ 解析失败: %v", err))
@@ -210,13 +216,13 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	// 存储到数据库
 	for _, msg := range parsedMessages {
 		s.saveMessage(roomID, room.SessionID, msg)
-		
+
 		// 添加解析后的消息到UI（包含详细信息）
 		if s.uiUpdater != nil {
 			msgType, _ := msg["messageType"].(string)
 			user, _ := msg["user"].(string)
 			content, _ := msg["content"].(string)
-			
+
 			displayMsg := fmt.Sprintf("类型: %s", msgType)
 			if user != "" {
 				displayMsg += fmt.Sprintf(" | 用户: %s", user)
@@ -224,7 +230,7 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 			if content != "" {
 				displayMsg += fmt.Sprintf(" | 内容: %s", content)
 			}
-			
+
 			// 特殊处理礼物消息
 			if msgType == "礼物消息" {
 				giftName, _ := msg["giftName"].(string)
@@ -233,7 +239,7 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 					displayMsg += fmt.Sprintf(" | 礼物: %s x%s", giftName, giftCount)
 				}
 			}
-			
+
 			// 传递完整的解析详情
 			s.uiUpdater.AddParsedMessageWithDetail(roomID, displayMsg, msg)
 		}
@@ -257,28 +263,28 @@ func (s *WebSocketServer) handleRequest(data map[string]interface{}) {
 func (s *WebSocketServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	
+
 	s.clientsMu.RLock()
 	clientCount := len(s.clients)
 	s.clientsMu.RUnlock()
-	
+
 	s.roomsMu.RLock()
 	roomCount := len(s.rooms)
 	s.roomsMu.RUnlock()
-	
+
 	response := map[string]interface{}{
-		"status":       "ok",
-		"port":         s.port,
-		"clients":      clientCount,
-		"rooms":        roomCount,
+		"status":  "ok",
+		"port":    s.port,
+		"clients": clientCount,
+		"rooms":   roomCount,
 		"endpoints": map[string]string{
 			"websocket": fmt.Sprintf("ws://localhost:%d/monitor", s.port),
 			"health":    fmt.Sprintf("http://localhost:%d/health", s.port),
 		},
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
-	
+
 	log.Printf("💊 健康检查: 客户端=%d, 房间=%d", clientCount, roomCount)
 }
 

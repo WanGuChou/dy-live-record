@@ -667,8 +667,16 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 		},
 	)
 
-	// 解析消息点击事件：显示完整详情
+	// 解析消息点击事件：显示完整详情并联动原始记录
 	roomTab.ParsedMsgs.OnSelected = func(id widget.ListItemID) {
+		if id < 0 || id >= len(roomTab.ParsedRecords) {
+			return
+		}
+
+		if rawID := roomTab.ParsedRecords[id].RawID; rawID != 0 {
+			roomTab.selectRawByID(rawID)
+		}
+
 		ui.showMessageDetail(roomTab, id)
 	}
 
@@ -729,6 +737,26 @@ func (roomTab *RoomTab) findRawPair(rawID int64) *MessagePair {
 		}
 	}
 	return nil
+}
+
+func (roomTab *RoomTab) findRawIndexByID(rawID int64) int {
+	for idx, pair := range roomTab.MessagePairs {
+		if pair.ID == rawID {
+			return idx
+		}
+	}
+	return -1
+}
+
+func (roomTab *RoomTab) selectRawByID(rawID int64) {
+	if roomTab.RawMessages == nil || rawID == 0 {
+		return
+	}
+	idx := roomTab.findRawIndexByID(rawID)
+	if idx >= 0 && idx < len(roomTab.RawData) {
+		roomTab.RawMessages.Select(idx)
+		roomTab.RawMessages.ScrollTo(idx)
+	}
 }
 
 func (roomTab *RoomTab) updateStats(roomID string) {
