@@ -50,6 +50,14 @@ func init() {
 	}
 }
 
+// MessagePair 消息对（原始+解析）
+type MessagePair struct {
+	RawMessage    string
+	ParsedMessage string
+	ParsedDetail  map[string]interface{} // 完整的解析数据
+	Timestamp     time.Time
+}
+
 // RoomTab 房间Tab数据
 type RoomTab struct {
 	RoomID       string
@@ -58,7 +66,9 @@ type RoomTab struct {
 	ParsedMsgs   *widget.List
 	RawData      []string
 	ParsedData   []string
+	MessagePairs []*MessagePair // 消息对列表
 	StatsLabel   *widget.Label
+	DetailWindow fyne.Window    // 详情窗口
 }
 
 // FyneUI Fyne 图形界面
@@ -591,15 +601,16 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	
 	// 创建房间Tab
 	roomTab := &RoomTab{
-		RoomID:     roomID,
-		RawData:    make([]string, 0, 100),
-		ParsedData: make([]string, 0, 100),
+		RoomID:       roomID,
+		RawData:      make([]string, 0, 100),
+		ParsedData:   make([]string, 0, 100),
+		MessagePairs: make([]*MessagePair, 0, 100),
 	}
 	
 	// 创建统计标签
 	roomTab.StatsLabel = widget.NewLabel(fmt.Sprintf("房间: %s | 消息: 0 条", roomID))
 	
-	// 创建原始消息列表
+	// 创建原始消息列表（支持点击查看详情）
 	roomTab.RawMessages = widget.NewList(
 		func() int {
 			return len(roomTab.RawData)
@@ -614,7 +625,16 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 		},
 	)
 	
-	// 创建解析后消息列表
+	// 原始消息点击事件：选中对应的解析消息
+	roomTab.RawMessages.OnSelected = func(id widget.ListItemID) {
+		if id < len(roomTab.MessagePairs) {
+			// 选中对应的解析消息
+			roomTab.ParsedMsgs.Select(id)
+			roomTab.ParsedMsgs.ScrollTo(id)
+		}
+	}
+	
+	// 创建解析后消息列表（支持点击查看详情）
 	roomTab.ParsedMsgs = widget.NewList(
 		func() int {
 			return len(roomTab.ParsedData)
@@ -628,6 +648,13 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 			}
 		},
 	)
+	
+	// 解析消息点击事件：显示完整详情
+	roomTab.ParsedMsgs.OnSelected = func(id widget.ListItemID) {
+		if id < len(roomTab.MessagePairs) {
+			ui.showMessageDetail(roomTab, id)
+		}
+	}
 	
 	// 创建分割视图
 	rawContainer := container.NewBorder(
@@ -673,12 +700,24 @@ func (ui *FyneUI) AddRawMessage(roomID string, message string) {
 	}
 	
 	// 添加消息（保留最新100条）
-	timestamp := time.Now().Format("15:04:05")
-	msg := fmt.Sprintf("[%s] %s", timestamp, message)
+	timestamp := time.Now()
+	msg := fmt.Sprintf("[%s] %s", timestamp.Format("15:04:05"), message)
 	
 	roomTab.RawData = append(roomTab.RawData, msg)
 	if len(roomTab.RawData) > 100 {
 		roomTab.RawData = roomTab.RawData[1:]
+	}
+	
+	// 创建新的消息对
+	pair := &MessagePair{
+		RawMessage:    message,
+		ParsedMessage: "等待解析...",
+		ParsedDetail:  nil,
+		Timestamp:     timestamp,
+	}
+	roomTab.MessagePairs = append(roomTab.MessagePairs, pair)
+	if len(roomTab.MessagePairs) > 100 {
+		roomTab.MessagePairs = roomTab.MessagePairs[1:]
 	}
 	
 	// 刷新UI
@@ -704,6 +743,12 @@ func (ui *FyneUI) AddParsedMessage(roomID string, message string) {
 		roomTab.ParsedData = roomTab.ParsedData[1:]
 	}
 	
+	// 更新最后一个消息对
+	if len(roomTab.MessagePairs) > 0 {
+		lastPair := roomTab.MessagePairs[len(roomTab.MessagePairs)-1]
+		lastPair.ParsedMessage = message
+	}
+	
 	// 更新统计
 	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 原始消息: %d 条 | 解析消息: %d 条", 
 		roomID, len(roomTab.RawData), len(roomTab.ParsedData)))
@@ -713,6 +758,97 @@ func (ui *FyneUI) AddParsedMessage(roomID string, message string) {
 	
 	// 滚动到底部
 	roomTab.ParsedMsgs.ScrollToBottom()
+}
+
+// AddParsedMessageWithDetail 添加解析后的消息（包含详细信息）
+func (ui *FyneUI) AddParsedMessageWithDetail(roomID string, message string, detail map[string]interface{}) {
+	roomTab, exists := ui.roomTabs[roomID]
+	if !exists {
+		return
+	}
+	
+	// 添加消息（保留最新100条）
+	timestamp := time.Now().Format("15:04:05")
+	msg := fmt.Sprintf("[%s] %s", timestamp, message)
+	
+	roomTab.ParsedData = append(roomTab.ParsedData, msg)
+	if len(roomTab.ParsedData) > 100 {
+		roomTab.ParsedData = roomTab.ParsedData[1:]
+	}
+	
+	// 更新最后一个消息对
+	if len(roomTab.MessagePairs) > 0 {
+		lastPair := roomTab.MessagePairs[len(roomTab.MessagePairs)-1]
+		lastPair.ParsedMessage = message
+		lastPair.ParsedDetail = detail
+	}
+	
+	// 更新统计
+	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 原始消息: %d 条 | 解析消息: %d 条", 
+		roomID, len(roomTab.RawData), len(roomTab.ParsedData)))
+	
+	// 刷新UI
+	roomTab.ParsedMsgs.Refresh()
+	
+	// 滚动到底部
+	roomTab.ParsedMsgs.ScrollToBottom()
+}
+
+// showMessageDetail 显示消息详情对话框
+func (ui *FyneUI) showMessageDetail(roomTab *RoomTab, id widget.ListItemID) {
+	if id >= len(roomTab.MessagePairs) {
+		return
+	}
+	
+	pair := roomTab.MessagePairs[id]
+	
+	// 构建详情内容
+	detailText := fmt.Sprintf("📅 时间: %s\n\n", pair.Timestamp.Format("2006-01-02 15:04:05"))
+	detailText += "📡 原始消息:\n" + pair.RawMessage + "\n\n"
+	detailText += "📋 解析后消息:\n" + pair.ParsedMessage + "\n\n"
+	
+	if pair.ParsedDetail != nil {
+		detailText += "🔍 详细信息:\n"
+		for key, value := range pair.ParsedDetail {
+			detailText += fmt.Sprintf("  %s: %v\n", key, value)
+		}
+	}
+	
+	// 创建详情窗口
+	detailWin := ui.app.NewWindow(fmt.Sprintf("消息详情 - 房间 %s", roomTab.RoomID))
+	detailWin.Resize(fyne.NewSize(800, 600))
+	detailWin.CenterOnScreen()
+	
+	// 创建多行文本组件
+	detailLabel := widget.NewLabel(detailText)
+	detailLabel.Wrapping = fyne.TextWrapWord
+	
+	// 创建滚动容器
+	scrollContainer := container.NewScroll(detailLabel)
+	
+	// 关闭按钮
+	closeBtn := widget.NewButton("关闭", func() {
+		detailWin.Close()
+	})
+	
+	// 复制按钮
+	copyBtn := widget.NewButton("复制详情", func() {
+		detailWin.Clipboard().SetContent(detailText)
+		log.Println("✅ 已复制消息详情到剪贴板")
+	})
+	
+	buttonBar := container.NewHBox(copyBtn, closeBtn)
+	
+	content := container.NewBorder(
+		nil,
+		buttonBar,
+		nil,
+		nil,
+		scrollContainer,
+	)
+	
+	detailWin.SetContent(content)
+	detailWin.Show()
 }
 
 // refreshData 刷新数据

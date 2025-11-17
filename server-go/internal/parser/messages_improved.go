@@ -46,6 +46,28 @@ func ParseMessagePayloadImproved(method string, payload []byte) map[string]inter
 		parsed, err = parseFansclubMessageImproved(payload, result)
 	case "WebcastEmojiChatMessage":
 		parsed, err = parseEmojiChatMessageImproved(payload, result)
+	case "WebcastRoomMessage":
+		parsed, err = parseRoomMessageImproved(payload, result)
+	case "WebcastMatchAgainstScoreMessage":
+		parsed, err = parseMatchAgainstScoreMessageImproved(payload, result)
+	case "WebcastRankUpdateMessage":
+		parsed, err = parseRankUpdateMessageImproved(payload, result)
+	case "WebcastLinkMicMessage":
+		parsed, err = parseLinkMicMessageImproved(payload, result)
+	case "WebcastLinkMicBattle":
+		parsed, err = parseLinkMicBattleImproved(payload, result)
+	case "WebcastLinkMicArmies":
+		parsed, err = parseLinkMicArmiesImproved(payload, result)
+	case "WebcastInRoomBannerMessage":
+		parsed, err = parseInRoomBannerMessageImproved(payload, result)
+	case "WebcastProductChangeMessage":
+		parsed, err = parseProductChangeMessageImproved(payload, result)
+	case "WebcastCommonTextMessage":
+		parsed, err = parseCommonTextMessageImproved(payload, result)
+	case "WebcastBarrageMessage":
+		parsed, err = parseBarrageMessageImproved(payload, result)
+	case "WebcastRoomRankMessage":
+		parsed, err = parseRoomRankMessageImproved(payload, result)
 	default:
 		log.Printf("⚠️  [%s] 未知消息类型", method)
 		return result
@@ -118,10 +140,18 @@ func parseGiftMessageImproved(payload []byte, result map[string]interface{}) (bo
 	bb := NewByteBuffer(payload)
 	
 	var user *User
+	var toUser *User
 	var gift *GiftStruct
 	var giftId string
 	var repeatCount string
 	var comboCount string
+	var groupCount string
+	var repeatEnd string
+	var totalCoin string
+	var timestamp string
+	var logId string
+	var sendType int32
+	var publicArea int32
 	
 	for !bb.IsAtEnd() {
 		tag, err := bb.ReadVarint32()
@@ -143,32 +173,67 @@ func parseGiftMessageImproved(payload []byte, result map[string]interface{}) (bo
 			}
 		case 2: // giftId
 			giftId, _ = bb.ReadVarint64(false)
-		case 4: // fanTicketCount
+		case 3: // fanTicketCount
 			bb.ReadVarint64(false)
-		case 5: // groupCount / repeatCount
+		case 4: // groupCount (数量)
+			groupCount, _ = bb.ReadVarint64(false)
+		case 5: // repeatCount (重复次数)
 			repeatCount, _ = bb.ReadVarint64(false)
-		case 6: // repeatEnd
+		case 6: // comboCount (连击次数)
 			comboCount, _ = bb.ReadVarint64(false)
-		case 7: // textEffect
-			skipLengthDelimitedField(bb)
-		case 8: // user
+		case 7: // user (发送者)
 			oldLimit, _ := bb.PushTemporaryLength()
 			user, _ = DecodeUserImproved(bb)
 			bb.limit = oldLimit
-		case 9: // toUser
+		case 8: // toUser (接收者，用于礼物PK)
+			oldLimit, _ := bb.PushTemporaryLength()
+			toUser, _ = DecodeUserImproved(bb)
+			bb.limit = oldLimit
+		case 9: // repeatEnd (是否连击结束, 0=继续, 1=结束)
+			repeatEnd, _ = bb.ReadVarint64(false)
+		case 10: // textEffect
 			skipLengthDelimitedField(bb)
-		case 10: // roomId
+		case 11: // groupId
 			bb.ReadVarint64(false)
-		case 11: // timestamp
+		case 12: // incomeTaskGifts
 			bb.ReadVarint64(false)
+		case 13: // roomFanTicketCount
+			bb.ReadVarint64(false)
+		case 14: // priority
+			skipLengthDelimitedField(bb)
 		case 15: // gift (关键：礼物详情)
 			oldLimit, _ := bb.PushTemporaryLength()
 			gift, _ = DecodeGiftStructImproved(bb)
 			bb.limit = oldLimit
-		case 23: // comboCount (另一个可能的字段)
-			comboCount, _ = bb.ReadVarint64(false)
-		case 25: // monitorExtra
+		case 16: // logId
+			length, _ := bb.ReadVarint32()
+			logId, _ = bb.ReadString(int(length))
+		case 17: // sendType (1=普通礼物, 2=投喂礼物)
+			sendType, _ = bb.ReadVarint32()
+		case 18: // publicAreaCommon
 			skipLengthDelimitedField(bb)
+		case 19: // trayDisplayText
+			skipLengthDelimitedField(bb)
+		case 20: // bannedDisplayText
+			skipLengthDelimitedField(bb)
+		case 21: // timestamp
+			timestamp, _ = bb.ReadVarint64(false)
+		case 22: // diyGiftInfo
+			skipLengthDelimitedField(bb)
+		case 23: // totalCoin (总价值)
+			totalCoin, _ = bb.ReadVarint64(false)
+		case 24: // sendGiftProfitCoreUserInfo
+			skipLengthDelimitedField(bb)
+		case 25: // toUserInfo
+			skipLengthDelimitedField(bb)
+		case 26: // comboGift
+			bb.ReadByte()
+		case 27: // monitorExtra
+			skipLengthDelimitedField(bb)
+		case 28: // anchorGift
+			bb.ReadByte()
+		case 29: // publicArea (是否公屏显示)
+			publicArea, _ = bb.ReadVarint32()
 		default:
 			bb.SkipUnknownField(wireType)
 		}
@@ -181,7 +246,15 @@ func parseGiftMessageImproved(payload []byte, result map[string]interface{}) (bo
 	result["messageType"] = "礼物消息"
 	result["user"] = user.Nickname
 	result["userId"] = user.ID
+	result["userLevel"] = user.Level
 	
+	// 接收者信息
+	if toUser != nil {
+		result["toUser"] = toUser.Nickname
+		result["toUserId"] = toUser.ID
+	}
+	
+	// 礼物信息
 	if gift != nil {
 		result["giftName"] = gift.Name
 		result["giftId"] = gift.ID
@@ -190,12 +263,41 @@ func parseGiftMessageImproved(payload []byte, result map[string]interface{}) (bo
 		result["giftId"] = giftId
 	}
 	
-	if repeatCount != "" && repeatCount != "0" {
+	// 数量计算 (优先级: groupCount > repeatCount > comboCount)
+	if groupCount != "" && groupCount != "0" {
+		result["giftCount"] = groupCount
+	} else if repeatCount != "" && repeatCount != "0" {
 		result["giftCount"] = repeatCount
 	} else if comboCount != "" && comboCount != "0" {
 		result["giftCount"] = comboCount
 	} else {
 		result["giftCount"] = "1"
+	}
+	
+	// 连击信息
+	if comboCount != "" && comboCount != "0" {
+		result["comboCount"] = comboCount
+	}
+	if repeatEnd != "" {
+		result["repeatEnd"] = repeatEnd
+		result["isComboEnd"] = repeatEnd == "1"
+	}
+	
+	// 其他信息
+	if totalCoin != "" && totalCoin != "0" {
+		result["totalCoin"] = totalCoin
+	}
+	if timestamp != "" {
+		result["giftTimestamp"] = timestamp
+	}
+	if logId != "" {
+		result["logId"] = logId
+	}
+	if sendType > 0 {
+		result["sendType"] = sendType
+	}
+	if publicArea > 0 {
+		result["publicArea"] = publicArea
 	}
 	
 	return true, nil
@@ -585,21 +687,95 @@ func DecodeUserImproved(bb *ByteBuffer) (*User, error) {
 		}
 
 		switch fieldNumber {
-		case 1: // id
+		case 1: // id (用户ID)
 			user.ID, _ = bb.ReadVarint64(false)
-		case 2: // shortId
+		case 2: // shortId (短ID)
 			user.ShortID, _ = bb.ReadVarint64(false)
-		case 3: // nickname
+		case 3: // nickname (昵称)
 			length, _ := bb.ReadVarint32()
 			user.Nickname, _ = bb.ReadString(int(length))
-		case 4: // gender
+		case 4: // gender (性别: 1=男, 2=女)
 			user.Gender, _ = bb.ReadVarint32()
-		case 6: // level
+		case 5: // signature (签名)
+			skipLengthDelimitedField(bb)
+		case 6: // level (等级)
 			user.Level, _ = bb.ReadVarint32()
-		case 9, 10, 11: // avatarThumb, avatarMedium, avatarLarge (Image)
+		case 7: // birthday (生日)
+			bb.ReadVarint64(false)
+		case 8: // telephone (电话)
 			skipLengthDelimitedField(bb)
-		case 22, 23, 24, 25, 26: // followInfo, payGrade, fansClub, border, specialId
+		case 9: // avatarThumb (头像缩略图)
 			skipLengthDelimitedField(bb)
+		case 10: // avatarMedium (头像中图)
+			skipLengthDelimitedField(bb)
+		case 11: // avatarLarge (头像大图)
+			skipLengthDelimitedField(bb)
+		case 12: // verified (是否认证)
+			bb.ReadByte()
+		case 13: // experience (经验值)
+			bb.ReadVarint32()
+		case 14: // city (城市)
+			skipLengthDelimitedField(bb)
+		case 15: // status (状态)
+			bb.ReadVarint32()
+		case 16: // createTime (创建时间)
+			bb.ReadVarint64(false)
+		case 17: // modifyTime (修改时间)
+			bb.ReadVarint64(false)
+		case 18: // secret (隐私设置)
+			bb.ReadVarint32()
+		case 19: // shareQrcodeUri (分享二维码)
+			skipLengthDelimitedField(bb)
+		case 20: // incomeSharePercent (收益分成比例)
+			bb.ReadVarint32()
+		case 21: // badgeImageList (徽章列表)
+			skipLengthDelimitedField(bb)
+		case 22: // followInfo (关注信息)
+			skipLengthDelimitedField(bb)
+		case 23: // payGrade (付费等级)
+			skipLengthDelimitedField(bb)
+		case 24: // fansClub (粉丝团)
+			skipLengthDelimitedField(bb)
+		case 25: // border (边框)
+			skipLengthDelimitedField(bb)
+		case 26: // specialId (特殊ID)
+			skipLengthDelimitedField(bb)
+		case 27: // avatarBorder (头像边框)
+			skipLengthDelimitedField(bb)
+		case 28: // medal (勋章)
+			skipLengthDelimitedField(bb)
+		case 29: // realTimeIcons (实时图标)
+			skipLengthDelimitedField(bb)
+		case 30: // newRealTimeIcons (新实时图标)
+			skipLengthDelimitedField(bb)
+		case 31: // topVip (顶级VIP)
+			skipLengthDelimitedField(bb)
+		case 32: // userAttr (用户属性)
+			skipLengthDelimitedField(bb)
+		case 33: // ownRoom (自己的直播间)
+			skipLengthDelimitedField(bb)
+		case 34: // payScores (付费积分)
+			bb.ReadVarint64(false)
+		case 35: // ticketCount (票数)
+			bb.ReadVarint64(false)
+		case 36: // anchorInfo (主播信息)
+			skipLengthDelimitedField(bb)
+		case 37: // linkMicStats (连麦统计)
+			skipLengthDelimitedField(bb)
+		case 38: // displayId (显示ID)
+			skipLengthDelimitedField(bb)
+		case 39: // withCommercePermission (商业权限)
+			bb.ReadByte()
+		case 40: // withFusionShopEntry (融合商店入口)
+			bb.ReadByte()
+		case 41: // verifyStatus (认证状态)
+			bb.ReadVarint32()
+		case 42: // enterpriseVerifyReason (企业认证原因)
+			skipLengthDelimitedField(bb)
+		case 43: // needsToGetToast (是否需要获取提示)
+			bb.ReadByte()
+		case 44: // isBlock (是否被拉黑)
+			bb.ReadByte()
 		default:
 			bb.SkipUnknownField(wireType)
 		}
@@ -626,20 +802,69 @@ func DecodeGiftStructImproved(bb *ByteBuffer) (*GiftStruct, error) {
 		}
 
 		switch fieldNumber {
-		case 1: // image (Image)
+		case 1: // image (礼物图片)
 			skipLengthDelimitedField(bb)
-		case 2: // describe
+		case 2: // describe (描述)
 			skipLengthDelimitedField(bb)
-		case 5: // id
+		case 3: // notify (通知)
+			bb.ReadByte()
+		case 4: // duration (持续时间)
+			bb.ReadVarint64(false)
+		case 5: // id (礼物ID)
 			gift.ID, _ = bb.ReadVarint64(false)
-		case 7: // type
+		case 6: // forLinkMic (是否连麦礼物)
+			bb.ReadByte()
+		case 7: // type (类型)
 			bb.ReadVarint32()
-		case 12: // diamondCount
+		case 8: // diamondCount (抖币价值)
 			gift.DiamondCount, _ = bb.ReadVarint32()
-		case 16: // name
+		case 9: // isDisplayedOnPanel (是否显示在面板)
+			bb.ReadByte()
+		case 10: // primaryEffectId (主效果ID)
+			bb.ReadVarint64(false)
+		case 11: // giftLabelIcon (礼物标签图标)
+			skipLengthDelimitedField(bb)
+		case 12: // name (礼物名称) - 注意：可能是field 12或16
 			length, _ := bb.ReadVarint32()
-			gift.Name, _ = bb.ReadString(int(length))
-		case 22: // icon (Image)
+			if gift.Name == "" {
+				gift.Name, _ = bb.ReadString(int(length))
+			} else {
+				bb.ReadString(int(length))
+			}
+		case 13: // region (区域)
+			skipLengthDelimitedField(bb)
+		case 14: // manual (手动)
+			bb.ReadByte()
+		case 15: // forFansclub (粉丝团礼物)
+			bb.ReadByte()
+		case 16: // name (礼物名称) - 注意：可能是field 12或16
+			length, _ := bb.ReadVarint32()
+			if gift.Name == "" {
+				gift.Name, _ = bb.ReadString(int(length))
+			} else {
+				bb.ReadString(int(length))
+			}
+		case 17: // goldEffect (金币效果)
+			skipLengthDelimitedField(bb)
+		case 18: // colorInfos (颜色信息)
+			skipLengthDelimitedField(bb)
+		case 19: // eventName (事件名称)
+			skipLengthDelimitedField(bb)
+		case 20: // landingPageUrl (落地页URL)
+			skipLengthDelimitedField(bb)
+		case 21: // stayTime (停留时间)
+			bb.ReadVarint32()
+		case 22: // icon (图标)
+			skipLengthDelimitedField(bb)
+		case 23: // actionType (动作类型)
+			bb.ReadVarint32()
+		case 24: // anchorEventInfo (主播事件信息)
+			skipLengthDelimitedField(bb)
+		case 25: // userEventInfo (用户事件信息)
+			skipLengthDelimitedField(bb)
+		case 26: // giftPanelBanner (礼物面板横幅)
+			skipLengthDelimitedField(bb)
+		case 27: // fullScreenEffect (全屏效果)
 			skipLengthDelimitedField(bb)
 		default:
 			bb.SkipUnknownField(wireType)
@@ -657,4 +882,442 @@ func skipLengthDelimitedField(bb *ByteBuffer) error {
 	}
 	_, err = bb.Advance(int(length))
 	return err
+}
+
+// parseRoomMessageImproved 直播间消息解析
+func parseRoomMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var content string
+	var roomStatus int32
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // content
+			length, _ := bb.ReadVarint32()
+			content, _ = bb.ReadString(int(length))
+		case 3: // roomStatus (1=开播, 2=下播)
+			roomStatus, _ = bb.ReadVarint32()
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "直播间消息"
+	result["content"] = content
+	result["roomStatus"] = roomStatus
+	
+	if roomStatus == 1 {
+		result["statusText"] = "开播"
+	} else if roomStatus == 2 {
+		result["statusText"] = "下播"
+	}
+	
+	return true, nil
+}
+
+// parseMatchAgainstScoreMessageImproved PK消息解析
+func parseMatchAgainstScoreMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var battleStatus int32
+	var matchScore string
+	var ownScore string
+	var againstScore string
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // matchScore
+			matchScore, _ = bb.ReadVarint64(false)
+		case 3: // ownScore
+			ownScore, _ = bb.ReadVarint64(false)
+		case 4: // againstScore
+			againstScore, _ = bb.ReadVarint64(false)
+		case 5: // battleStatus (1=进行中, 2=结束)
+			battleStatus, _ = bb.ReadVarint32()
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "PK消息"
+	result["matchScore"] = matchScore
+	result["ownScore"] = ownScore
+	result["againstScore"] = againstScore
+	result["battleStatus"] = battleStatus
+	
+	return true, nil
+}
+
+// parseRankUpdateMessageImproved 榜单更新消息解析
+func parseRankUpdateMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var rankType int32
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // rankType
+			rankType, _ = bb.ReadVarint32()
+		case 3: // rankList (repeated)
+			skipLengthDelimitedField(bb)
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "榜单更新"
+	result["rankType"] = rankType
+	
+	return true, nil
+}
+
+// parseLinkMicMessageImproved 连麦消息解析
+func parseLinkMicMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var scene int32
+	var micStatus int32
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // scene (1=连麦, 2=PK)
+			scene, _ = bb.ReadVarint32()
+		case 3: // micStatus
+			micStatus, _ = bb.ReadVarint32()
+		case 4: // anchorList
+			skipLengthDelimitedField(bb)
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "连麦消息"
+	result["scene"] = scene
+	result["micStatus"] = micStatus
+	
+	return true, nil
+}
+
+// parseLinkMicBattleImproved 连麦PK消息解析
+func parseLinkMicBattleImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var battleStatus int32
+	var battleDuration int32
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // battleStatus
+			battleStatus, _ = bb.ReadVarint32()
+		case 3: // battleDuration
+			battleDuration, _ = bb.ReadVarint32()
+		case 4: // battleItems
+			skipLengthDelimitedField(bb)
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "连麦PK"
+	result["battleStatus"] = battleStatus
+	result["battleDuration"] = battleDuration
+	
+	return true, nil
+}
+
+// parseLinkMicArmiesImproved 连麦军团消息解析
+func parseLinkMicArmiesImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // armies
+			skipLengthDelimitedField(bb)
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "连麦军团"
+	
+	return true, nil
+}
+
+// parseInRoomBannerMessageImproved 房间横幅消息解析
+func parseInRoomBannerMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var content string
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // content
+			length, _ := bb.ReadVarint32()
+			content, _ = bb.ReadString(int(length))
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "房间横幅"
+	result["content"] = content
+	
+	return true, nil
+}
+
+// parseProductChangeMessageImproved 商品变化消息解析
+func parseProductChangeMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var updateType int32
+	var productId string
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // updateType (1=上架, 2=下架)
+			updateType, _ = bb.ReadVarint32()
+		case 3: // productId
+			length, _ := bb.ReadVarint32()
+			productId, _ = bb.ReadString(int(length))
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "商品变化"
+	result["updateType"] = updateType
+	result["productId"] = productId
+	
+	return true, nil
+}
+
+// parseCommonTextMessageImproved 通用文本消息解析
+func parseCommonTextMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var user *User
+	var content string
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // user
+			oldLimit, _ := bb.PushTemporaryLength()
+			user, _ = DecodeUserImproved(bb)
+			bb.limit = oldLimit
+		case 3: // content
+			length, _ := bb.ReadVarint32()
+			content, _ = bb.ReadString(int(length))
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "通用文本消息"
+	if user != nil {
+		result["user"] = user.Nickname
+		result["userId"] = user.ID
+	}
+	result["content"] = content
+	
+	return true, nil
+}
+
+// parseBarrageMessageImproved 弹幕消息解析
+func parseBarrageMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var content string
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // content
+			length, _ := bb.ReadVarint32()
+			content, _ = bb.ReadString(int(length))
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "弹幕消息"
+	result["content"] = content
+	
+	return true, nil
+}
+
+// parseRoomRankMessageImproved 房间排行榜消息解析
+func parseRoomRankMessageImproved(payload []byte, result map[string]interface{}) (bool, error) {
+	bb := NewByteBuffer(payload)
+	
+	var rankType int32
+	
+	for !bb.IsAtEnd() {
+		tag, err := bb.ReadVarint32()
+		if err != nil {
+			break
+		}
+
+		fieldNumber := tag >> 3
+		wireType := int(tag & 7)
+
+		if fieldNumber == 0 {
+			break
+		}
+
+		switch fieldNumber {
+		case 1: // common
+			skipLengthDelimitedField(bb)
+		case 2: // rankType
+			rankType, _ = bb.ReadVarint32()
+		case 3: // rankItems
+			skipLengthDelimitedField(bb)
+		default:
+			bb.SkipUnknownField(wireType)
+		}
+	}
+	
+	result["messageType"] = "房间排行榜"
+	result["rankType"] = rankType
+	
+	return true, nil
 }

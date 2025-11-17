@@ -1,9 +1,5 @@
 package parser
 
-import (
-	"time"
-)
-
 // User 用户结构
 type User struct {
 	ID       string

@@ -18,6 +18,7 @@ type UIUpdater interface {
 	AddOrUpdateRoom(roomID string)
 	AddRawMessage(roomID string, message string)
 	AddParsedMessage(roomID string, message string)
+	AddParsedMessageWithDetail(roomID string, message string, detail map[string]interface{})
 }
 
 // WebSocketServer WebSocket服务器
@@ -210,7 +211,7 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	for _, msg := range parsedMessages {
 		s.saveMessage(roomID, room.SessionID, msg)
 		
-		// 添加解析后的消息到UI
+		// 添加解析后的消息到UI（包含详细信息）
 		if s.uiUpdater != nil {
 			msgType, _ := msg["messageType"].(string)
 			user, _ := msg["user"].(string)
@@ -233,7 +234,8 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 				}
 			}
 			
-			s.uiUpdater.AddParsedMessage(roomID, displayMsg)
+			// 传递完整的解析详情
+			s.uiUpdater.AddParsedMessageWithDetail(roomID, displayMsg, msg)
 		}
 	}
 
