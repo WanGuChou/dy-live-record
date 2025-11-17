@@ -234,7 +234,15 @@ func DecodeMessage(bb *ByteBuffer) (*Message, error) {
 }
 
 // ParseDouyinMessage 解析抖音消息（主入口）
-func ParseDouyinMessage(payloadData, url string) ([]map[string]interface{}, error) {
+func ParseDouyinMessage(payloadData, url string) (results []map[string]interface{}, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("⚠️  ParseDouyinMessage panic: %v", r)
+			err = fmt.Errorf("解析消息时发生异常: %v", r)
+			results = nil
+		}
+	}()
+
 	buffer, err := decodePayloadBuffer(payloadData)
 	if err != nil {
 		return nil, err
@@ -255,7 +263,7 @@ func ParseDouyinMessage(payloadData, url string) ([]map[string]interface{}, erro
 		}
 	}
 
-	results := make([]map[string]interface{}, 0, len(response.Messages))
+	results = make([]map[string]interface{}, 0, len(response.Messages))
 	for _, msg := range response.Messages {
 		if msg == nil || msg.Method == "" || msg.Payload == nil {
 			continue

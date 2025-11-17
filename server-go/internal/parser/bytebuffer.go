@@ -6,6 +6,8 @@ import (
 	"fmt"
 )
 
+const maxFieldLength = 10 * 1024 * 1024 // 10MB 安全限制
+
 // ByteBuffer Go 版本的 ByteBuffer（模仿 dycast 的实现）
 type ByteBuffer struct {
 	bytes  []byte
@@ -27,8 +29,16 @@ func (bb *ByteBuffer) IsAtEnd() bool {
 	return bb.offset >= bb.limit
 }
 
+// Remaining 返回剩余字节数
+func (bb *ByteBuffer) Remaining() int {
+	return bb.limit - bb.offset
+}
+
 // Advance 前进指定字节数
 func (bb *ByteBuffer) Advance(count int) (int, error) {
+	if count < 0 {
+		return 0, errors.New("advance with negative count")
+	}
 	oldOffset := bb.offset
 	if oldOffset+count > bb.limit {
 		return 0, errors.New("read past limit")
@@ -48,6 +58,12 @@ func (bb *ByteBuffer) ReadByte() (byte, error) {
 
 // ReadBytes 读取指定数量的字节
 func (bb *ByteBuffer) ReadBytes(count int) ([]byte, error) {
+	if count < 0 {
+		return nil, errors.New("read bytes with negative length")
+	}
+	if count > bb.Remaining() {
+		return nil, errors.New("read past buffer limit")
+	}
 	offset, err := bb.Advance(count)
 	if err != nil {
 		return nil, err
@@ -59,36 +75,36 @@ func (bb *ByteBuffer) ReadBytes(count int) ([]byte, error) {
 func (bb *ByteBuffer) ReadVarint32() (int32, error) {
 	var value uint32
 	var shift uint
-	
+
 	for {
 		b, err := bb.ReadByte()
 		if err != nil {
 			return 0, err
 		}
-		
+
 		if shift < 32 {
 			value |= uint32(b&0x7f) << shift
 		}
 		shift += 7
-		
+
 		if (b & 0x80) == 0 {
 			break
 		}
 	}
-	
+
 	return int32(value), nil
 }
 
 // ReadVarint64 读取 varint64
 func (bb *ByteBuffer) ReadVarint64(unsigned bool) (string, error) {
 	var part0, part1, part2 uint32
-	
+
 	b, err := bb.ReadByte()
 	if err != nil {
 		return "", err
 	}
 	part0 = uint32(b & 0x7f)
-	
+
 	if (b & 0x80) != 0 {
 		b, _ = bb.ReadByte()
 		part0 |= uint32(b&0x7f) << 7
@@ -125,14 +141,14 @@ func (bb *ByteBuffer) ReadVarint64(unsigned bool) (string, error) {
 			}
 		}
 	}
-	
+
 	low := part0 | (part1 << 28)
 	high := (part1 >> 4) | (part2 << 24)
-	
+
 	if high == 0 {
 		return fmt.Sprintf("%d", low), nil
 	}
-	
+
 	// 64位数值
 	result := uint64(high)*4294967296 + uint64(low)
 	return fmt.Sprintf("%d", result), nil
@@ -140,17 +156,26 @@ func (bb *ByteBuffer) ReadVarint64(unsigned bool) (string, error) {
 
 // ReadString 读取字符串（UTF-8）
 func (bb *ByteBuffer) ReadString(length int) (string, error) {
+	if length < 0 {
+		return "", errors.New("string length negative")
+	}
+	if length > maxFieldLength {
+		return "", fmt.Errorf("string length %d exceeds maximum %d", length, maxFieldLength)
+	}
+	if length > bb.Remaining() {
+		return "", errors.New("string length exceeds remaining buffer")
+	}
 	bytes, err := bb.ReadBytes(length)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// UTF-8 解码
 	result := ""
 	i := 0
 	for i < len(bytes) {
 		c1 := bytes[i]
-		
+
 		if (c1 & 0x80) == 0 {
 			// 单字节字符
 			result += string(rune(c1))
@@ -212,8 +237,8 @@ func (bb *ByteBuffer) ReadString(length int) (string, error) {
 					result += "\uFFFD"
 				} else {
 					c -= 0x10000
-					result += string(rune((c>>10) + 0xd800))
-					result += string(rune((c&0x3ff) + 0xdc00))
+					result += string(rune((c >> 10) + 0xd800))
+					result += string(rune((c & 0x3ff) + 0xdc00))
 				}
 				i += 4
 			}
@@ -222,7 +247,7 @@ func (bb *ByteBuffer) ReadString(length int) (string, error) {
 			i++
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -232,14 +257,20 @@ func (bb *ByteBuffer) PushTemporaryLength() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	
+	if length < 0 {
+		return 0, errors.New("negative length for nested message")
+	}
+	if int(length) > bb.Remaining() {
+		return 0, errors.New("nested length exceeds remaining buffer")
+	}
+
 	oldLimit := bb.limit
 	bb.limit = bb.offset + int(length)
-	
+
 	if bb.limit > len(bb.bytes) {
 		return 0, errors.New("length exceeds buffer size")
 	}
-	
+
 	return oldLimit, nil
 }
 
