@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
+	"strings"
 )
 
 // PushFrame Protobuf PushFrame 结构
@@ -233,47 +235,100 @@ func DecodeMessage(bb *ByteBuffer) (*Message, error) {
 
 // ParseDouyinMessage 解析抖音消息（主入口）
 func ParseDouyinMessage(payloadData, url string) ([]map[string]interface{}, error) {
-	// 1. Base64 解码
-	buffer, err := base64.StdEncoding.DecodeString(payloadData)
+	buffer, err := decodePayloadBuffer(payloadData)
 	if err != nil {
-		return nil, fmt.Errorf("Base64解码失败: %w", err)
+		return nil, err
 	}
 
-	// 2. 解析 PushFrame
-	pushFrame, err := DecodePushFrame(buffer)
-	if err != nil || pushFrame.Payload == nil {
-		return nil, fmt.Errorf("PushFrame解析失败: %w", err)
+	responsePayload, err := decodeResponsePayload(buffer)
+	if err != nil {
+		return nil, err
 	}
 
-	// 3. GZIP 解压（如果需要）
-	payload := pushFrame.Payload
-	if compressType, ok := pushFrame.HeadersList["compress_type"]; ok && compressType == "gzip" {
-		reader, err := gzip.NewReader(bytes.NewReader(payload))
-		if err == nil {
-			decompressed, err := io.ReadAll(reader)
-			reader.Close()
-			if err == nil {
-				payload = decompressed
-			}
+	response, err := DecodeResponse(responsePayload)
+	if err != nil || len(response.Messages) == 0 {
+		// 再尝试一次直接解析原始数据（兼容部分异常场景）
+		if fallbackResp, fallbackErr := DecodeResponse(decompressIfGzip(buffer)); fallbackErr == nil && len(fallbackResp.Messages) > 0 {
+			response = fallbackResp
+		} else {
+			return nil, fmt.Errorf("Response解析失败: %w", err)
 		}
 	}
 
-	// 4. 解析 Response
-	response, err := DecodeResponse(payload)
-	if err != nil || len(response.Messages) == 0 {
-		return nil, fmt.Errorf("Response解析失败: %w", err)
-	}
-
-	// 5. 解析每条消息
-	results := make([]map[string]interface{}, 0)
+	results := make([]map[string]interface{}, 0, len(response.Messages))
 	for _, msg := range response.Messages {
-		if msg.Method != "" && msg.Payload != nil {
-			parsed := ParseMessagePayload(msg.Method, msg.Payload)
-			if parsed != nil {
-				results = append(results, parsed)
-			}
+		if msg == nil || msg.Method == "" || msg.Payload == nil {
+			continue
+		}
+		payload := decompressIfGzip(msg.Payload)
+		parsed := ParseMessagePayload(msg.Method, payload)
+		if parsed != nil {
+			results = append(results, parsed)
 		}
 	}
 
 	return results, nil
+}
+
+func decodePayloadBuffer(payloadData string) ([]byte, error) {
+	data := strings.TrimSpace(payloadData)
+	if data == "" {
+		return nil, fmt.Errorf("payloadData为空")
+	}
+
+	if decoded, err := base64.StdEncoding.DecodeString(data); err == nil {
+		return decoded, nil
+	} else if rawDecoded, rawErr := base64.RawStdEncoding.DecodeString(data); rawErr == nil {
+		return rawDecoded, nil
+	}
+
+	log.Printf("⚠️ Payload 不是标准Base64，按原始文本处理")
+	return []byte(data), nil
+}
+
+func decodeResponsePayload(buffer []byte) ([]byte, error) {
+	pushFrame, err := DecodePushFrame(buffer)
+	if err != nil {
+		log.Printf("⚠️ PushFrame解析失败，直接尝试解析 Response: %v", err)
+		return decompressIfGzip(buffer), nil
+	}
+
+	if pushFrame.Payload == nil {
+		log.Printf("⚠️ PushFrame 不包含 Payload，使用原始数据")
+		return decompressIfGzip(buffer), nil
+	}
+
+	payload := pushFrame.Payload
+	if encoding := strings.ToLower(pushFrame.PayloadEncoding); encoding == "gzip" {
+		payload = decompressIfGzip(payload)
+	} else if compressType, ok := pushFrame.HeadersList["compress_type"]; ok && strings.EqualFold(compressType, "gzip") {
+		payload = decompressIfGzip(payload)
+	} else {
+		payload = decompressIfGzip(payload)
+	}
+
+	return payload, nil
+}
+
+func decompressIfGzip(data []byte) []byte {
+	if len(data) < 2 {
+		return data
+	}
+	if data[0] == 0x1f && data[1] == 0x8b {
+		if decompressed, err := gzipDecompress(data); err == nil {
+			return decompressed
+		} else {
+			log.Printf("⚠️ GZIP 解压失败: %v", err)
+		}
+	}
+	return data
+}
+
+func gzipDecompress(data []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
 }
