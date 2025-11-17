@@ -2,10 +2,10 @@ package main
 
 const (
 	// Version 版本号
-	Version = "v3.2.1"
+	Version = "v3.3.0"
 
 	// BuildDate 构建日期
-	BuildDate = "2025-11-15"
+	BuildDate = "2025-11-16"
 
 	// AppName 应用名称
 	AppName = "抖音直播监控系统"
