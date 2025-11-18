@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -16,7 +17,6 @@ import (
 // UIUpdater UI更新接口
 type UIUpdater interface {
 	AddOrUpdateRoom(roomID string)
-	AddRawMessage(roomID string, message string)
 	AddParsedMessage(roomID string, message string)
 	AddParsedMessageWithDetail(roomID string, message string, detail map[string]interface{})
 }
@@ -40,7 +40,6 @@ type RoomManager struct {
 	RoomID      string
 	SessionID   int64
 	LastMessage int64
-	Parser      *parser.DouyinParser
 }
 
 // NewWebSocketServer 创建WebSocket服务器
@@ -64,23 +63,23 @@ func NewWebSocketServer(port int, db *database.DB) *WebSocketServer {
 func (s *WebSocketServer) Start() error {
 	http.HandleFunc("/monitor", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
-	
+
 	addr := fmt.Sprintf(":%d", s.port)
-	
+
 	// 在单独的 goroutine 中启动服务器
 	go func() {
 		log.Printf("🌐 WebSocket 服务器正在启动，监听端口: %d", s.port)
 		log.Printf("📍 WebSocket 地址: ws://localhost:%d/monitor", s.port)
 		log.Printf("📍 健康检查地址: http://localhost:%d/health", s.port)
-		
+
 		// 通知服务器已准备好监听
 		s.started <- true
-		
+
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			log.Fatalf("❌ WebSocket 服务器启动失败: %v", err)
 		}
 	}()
-	
+
 	// 等待服务器启动
 	<-s.started
 	return nil
@@ -89,7 +88,7 @@ func (s *WebSocketServer) Start() error {
 // handleWebSocket 处理WebSocket连接
 func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("🔌 收到 WebSocket 连接请求: %s", r.RemoteAddr)
-	
+
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("❌ WebSocket 升级失败: %v", err)
@@ -175,75 +174,42 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 
 	// 获取或创建房间管理器
 	room := s.getOrCreateRoom(roomID)
-	
+
 	// 通知UI创建房间Tab
 	if s.uiUpdater != nil {
 		s.uiUpdater.AddOrUpdateRoom(roomID)
 	}
-	
-	// 添加原始消息到UI
-	if s.uiUpdater != nil {
-		// 截取前200字符显示
-		displayData := payloadData
-		if len(displayData) > 200 {
-			displayData = displayData[:200] + "..."
-		}
-		s.uiUpdater.AddRawMessage(roomID, fmt.Sprintf("URL: %s\nPayload: %s", url, displayData))
-	}
 
 	// 解析抖音消息
-	parsedMessages, err := room.Parser.ParseMessage(payloadData, url)
+	parsedMessages, err := parser.ParseWebcastPayload(payloadData)
 	if err != nil {
 		log.Printf("❌ [房间 %s] 解析失败: %v", roomID, err)
-		
-		// 添加错误到UI
 		if s.uiUpdater != nil {
 			s.uiUpdater.AddParsedMessage(roomID, fmt.Sprintf("❌ 解析失败: %v", err))
 		}
 		return
 	}
 
-	if parsedMessages == nil || len(parsedMessages) == 0 {
+	if len(parsedMessages) == 0 {
 		return
 	}
 
 	// 存储到数据库
 	for _, msg := range parsedMessages {
 		s.saveMessage(roomID, room.SessionID, msg)
-		
-		// 添加解析后的消息到UI（包含详细信息）
+
 		if s.uiUpdater != nil {
-			msgType, _ := msg["messageType"].(string)
-			user, _ := msg["user"].(string)
-			content, _ := msg["content"].(string)
-			
-			displayMsg := fmt.Sprintf("类型: %s", msgType)
-			if user != "" {
-				displayMsg += fmt.Sprintf(" | 用户: %s", user)
-			}
-			if content != "" {
-				displayMsg += fmt.Sprintf(" | 内容: %s", content)
-			}
-			
-			// 特殊处理礼物消息
-			if msgType == "礼物消息" {
-				giftName, _ := msg["giftName"].(string)
-				giftCount, _ := msg["giftCount"].(string)
-				if giftName != "" {
-					displayMsg += fmt.Sprintf(" | 礼物: %s x%s", giftName, giftCount)
-				}
-			}
-			
-			// 传递完整的解析详情
-			s.uiUpdater.AddParsedMessageWithDetail(roomID, displayMsg, msg)
+			detailCopy := cloneDetail(msg.Detail)
+			detailCopy["_parsed"] = msg
+			s.uiUpdater.AddParsedMessageWithDetail(roomID, msg.Display, detailCopy)
+		}
+
+		if err := s.PersistRoomMessage(roomID, msg, "browser"); err != nil {
+			log.Printf("⚠️  保存房间消息失败: %v", err)
 		}
 	}
 
-	// 打印格式化消息到控制台
-	formatted := room.Parser.FormatMessage(parsedMessages)
-	if formatted != "" {
-		log.Println(formatted)
-	}
+	log.Printf("📨 房间 %s 收到 %d 条消息", roomID, len(parsedMessages))
 }
 
 // handleRequest 处理HTTP请求记录
@@ -257,28 +223,28 @@ func (s *WebSocketServer) handleRequest(data map[string]interface{}) {
 func (s *WebSocketServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	
+
 	s.clientsMu.RLock()
 	clientCount := len(s.clients)
 	s.clientsMu.RUnlock()
-	
+
 	s.roomsMu.RLock()
 	roomCount := len(s.rooms)
 	s.roomsMu.RUnlock()
-	
+
 	response := map[string]interface{}{
-		"status":       "ok",
-		"port":         s.port,
-		"clients":      clientCount,
-		"rooms":        roomCount,
+		"status":  "ok",
+		"port":    s.port,
+		"clients": clientCount,
+		"rooms":   roomCount,
 		"endpoints": map[string]string{
 			"websocket": fmt.Sprintf("ws://localhost:%d/monitor", s.port),
 			"health":    fmt.Sprintf("http://localhost:%d/health", s.port),
 		},
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
-	
+
 	log.Printf("💊 健康检查: 客户端=%d, 房间=%d", clientCount, roomCount)
 }
 
@@ -292,7 +258,6 @@ func (s *WebSocketServer) getOrCreateRoom(roomID string) *RoomManager {
 		// 创建新房间
 		room = &RoomManager{
 			RoomID: roomID,
-			Parser: parser.NewDouyinParser(),
 		}
 
 		// 创建新的直播场次
@@ -322,24 +287,96 @@ func (s *WebSocketServer) createLiveSession(roomID string) int64 {
 }
 
 // saveMessage 保存消息到数据库
-func (s *WebSocketServer) saveMessage(roomID string, sessionID int64, msg map[string]interface{}) {
-	messageType, _ := msg["messageType"].(string)
+func (s *WebSocketServer) saveMessage(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
+	if parsed == nil {
+		return
+	}
 
-	switch messageType {
+	switch parsed.MessageType {
 	case "礼物消息":
-		s.saveGiftRecord(roomID, sessionID, msg)
+		s.saveGiftRecord(roomID, sessionID, parsed)
 	case "聊天消息", "进入直播间", "关注消息":
-		s.saveMessageRecord(roomID, sessionID, msg)
+		s.saveMessageRecord(roomID, sessionID, parsed)
 	}
 }
 
+func (s *WebSocketServer) PersistRoomMessage(roomID string, parsed *parser.ParsedProtoMessage, source string) error {
+	if s.db == nil || parsed == nil {
+		return nil
+	}
+
+	detail := parsed.Detail
+
+	record := &database.RoomMessageRecord{
+		RoomID:      roomID,
+		Method:      parsed.Method,
+		MessageType: parsed.MessageType,
+		Display:     parsed.Display,
+		UserID:      toString(detail["userId"]),
+		UserName:    toString(detail["user"]),
+		GiftName:    toString(detail["giftName"]),
+		GiftCount:   toInt(detail["groupCount"]),
+		GiftValue:   toInt(detail["diamondCount"]),
+		AnchorID:    toString(detail["anchorId"]),
+		RawPayload:  parsed.RawPayload,
+		ParsedJSON:  parsed.RawJSON,
+		Source:      source,
+		SentAt:      parsed.ReceivedAt,
+	}
+
+	if record.SentAt.IsZero() {
+		record.SentAt = time.Now()
+	}
+
+	return s.db.InsertRoomMessage(record)
+}
+
+func toString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+func toInt(v interface{}) int {
+	switch val := v.(type) {
+	case int:
+		return val
+	case int32:
+		return int(val)
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case string:
+		if val == "" {
+			return 0
+		}
+		var i int
+		fmt.Sscanf(val, "%d", &i)
+		return i
+	default:
+		return 0
+	}
+}
+
+func cloneDetail(detail map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(detail))
+	for k, v := range detail {
+		result[k] = v
+	}
+	return result
+}
+
 // saveGiftRecord 保存礼物记录
-func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, msg map[string]interface{}) {
-	userNickname, _ := msg["user"].(string)
-	giftName, _ := msg["giftName"].(string)
-	giftCount, _ := msg["giftCount"].(string)
-	diamondCount, _ := msg["diamondCount"].(int)
-	content, _ := msg["content"].(string)
+func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
+	detail := parsed.Detail
+	userNickname := toString(detail["user"])
+	giftName := toString(detail["giftName"])
+	giftCount := toString(detail["groupCount"])
+	diamondCount := toInt(detail["diamondCount"])
+	content := toString(detail["content"])
+	anchorID := toString(detail["anchorId"])
 
 	_, err := s.db.GetConnection().Exec(`
 		INSERT INTO gift_records (
@@ -353,8 +390,14 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, msg map
 	}
 
 	// 尝试分配礼物给主播
-	anchorID, err := s.giftAllocator.AllocateGift(giftName, content)
-	if err == nil && anchorID != "" {
+	if anchorID == "" {
+		var err error
+		anchorID, err = s.giftAllocator.AllocateGift(giftName, content)
+		if err != nil {
+			return
+		}
+	}
+	if anchorID != "" {
 		// 记录主播业绩
 		if err := s.giftAllocator.RecordAnchorPerformance(anchorID, giftName, diamondCount); err != nil {
 			log.Printf("❌ 记录主播业绩失败: %v", err)
@@ -363,10 +406,11 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, msg map
 }
 
 // saveMessageRecord 保存消息记录
-func (s *WebSocketServer) saveMessageRecord(roomID string, sessionID int64, msg map[string]interface{}) {
-	messageType, _ := msg["messageType"].(string)
-	userNickname, _ := msg["user"].(string)
-	content, _ := msg["content"].(string)
+func (s *WebSocketServer) saveMessageRecord(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
+	detail := parsed.Detail
+	messageType := toString(detail["messageType"])
+	userNickname := toString(detail["user"])
+	content := toString(detail["content"])
 
 	_, err := s.db.GetConnection().Exec(`
 		INSERT INTO message_records (

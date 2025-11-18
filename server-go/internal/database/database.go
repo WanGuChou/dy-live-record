@@ -110,6 +110,38 @@ func (db *DB) initSchema() error {
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
+	-- 房间专属主播信息
+	CREATE TABLE IF NOT EXISTS room_anchors (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		room_id TEXT NOT NULL,
+		anchor_id TEXT NOT NULL,
+		anchor_name TEXT,
+		avatar_url TEXT,
+		bound_gifts TEXT,
+		gift_count INTEGER DEFAULT 0,
+		score INTEGER DEFAULT 0,
+		UNIQUE(room_id, anchor_id)
+	);
+
+	-- 礼物信息
+	CREATE TABLE IF NOT EXISTS gifts (
+		gift_id TEXT PRIMARY KEY,
+		gift_name TEXT,
+		diamond_value INTEGER DEFAULT 0,
+		icon TEXT,
+		version TEXT,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- 房间礼物绑定
+	CREATE TABLE IF NOT EXISTS room_gift_bindings (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		room_id TEXT NOT NULL,
+		gift_name TEXT NOT NULL,
+		anchor_id TEXT,
+		UNIQUE(room_id, gift_name)
+	);
+
 	-- 索引
 	CREATE INDEX IF NOT EXISTS idx_gifts_session ON gift_records(session_id);
 	CREATE INDEX IF NOT EXISTS idx_gifts_room ON gift_records(room_id);
@@ -117,6 +149,8 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_messages_session ON message_records(session_id);
 	CREATE INDEX IF NOT EXISTS idx_messages_room ON message_records(room_id);
 	CREATE INDEX IF NOT EXISTS idx_sessions_room ON live_sessions(room_id);
+	CREATE INDEX IF NOT EXISTS idx_room_anchors_room ON room_anchors(room_id);
+	CREATE INDEX IF NOT EXISTS idx_room_gift_binding ON room_gift_bindings(room_id);
 	`
 
 	_, err := db.conn.Exec(schema)

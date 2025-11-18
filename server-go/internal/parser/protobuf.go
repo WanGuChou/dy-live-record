@@ -233,6 +233,20 @@ func DecodeMessage(bb *ByteBuffer) (*Message, error) {
 
 // ParseDouyinMessage 解析抖音消息（主入口）
 func ParseDouyinMessage(payloadData, url string) ([]map[string]interface{}, error) {
+	parsedMessages, err := ParseWebcastPayload(payloadData)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]map[string]interface{}, 0, len(parsedMessages))
+	for _, msg := range parsedMessages {
+		results = append(results, msg.Detail)
+	}
+	return results, nil
+}
+
+// ParseWebcastPayload 解析原始 Base64/Gzip Payload，返回标准化的 Proto 结果
+func ParseWebcastPayload(payloadData string) ([]*ParsedProtoMessage, error) {
 	// 1. Base64 解码
 	buffer, err := base64.StdEncoding.DecodeString(payloadData)
 	if err != nil {
@@ -265,13 +279,14 @@ func ParseDouyinMessage(payloadData, url string) ([]map[string]interface{}, erro
 	}
 
 	// 5. 解析每条消息
-	results := make([]map[string]interface{}, 0)
+	results := make([]*ParsedProtoMessage, 0, len(response.Messages))
 	for _, msg := range response.Messages {
 		if msg.Method != "" && msg.Payload != nil {
-			parsed := ParseMessagePayload(msg.Method, msg.Payload)
-			if parsed != nil {
-				results = append(results, parsed)
+			parsed, err := ParseProtoMessage(msg.Method, msg.Payload)
+			if err != nil {
+				continue
 			}
+			results = append(results, parsed)
 		}
 	}
 
