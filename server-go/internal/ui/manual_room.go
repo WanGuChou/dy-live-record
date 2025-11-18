@@ -212,7 +212,7 @@ func safeNickname(user *newdouyin.Webcast_Data_User) string {
 	return fmt.Sprintf("用户%d", user.GetId())
 }
 
-func giftName(gift *newdouyin.Webcast_Data_Gift) string {
+func giftName(gift *newdouyin.Webcast_Data_GiftStruct) string {
 	if gift == nil {
 		return "未知礼物"
 	}
