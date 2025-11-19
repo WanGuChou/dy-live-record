@@ -1062,9 +1062,10 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	roomTab.FilterSelect = widget.NewSelect([]string{"全部", "聊天消息", "礼物消息", "点赞消息", "进场消息", "关注消息"}, func(val string) {
 		roomTab.MessageFilter = val
 		ui.applyRoomFilter(roomTab)
-		roomTab.MessagesList.Refresh()
+		if roomTab.MessagesList != nil {
+			roomTab.MessagesList.Refresh()
+		}
 	})
-	roomTab.FilterSelect.SetSelected("全部")
 
 	roomTab.MessagesList = widget.NewList(
 		func() int {
@@ -1083,6 +1084,8 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	roomTab.MessagesList.OnSelected = func(id widget.ListItemID) {
 		ui.showMessageDetail(roomTab, id)
 	}
+
+	roomTab.FilterSelect.SetSelected("全部")
 
 	giftOnlyBtn := widget.NewButton("礼物记录视图", func() {
 		ui.showGiftRecordWindow(roomID)
