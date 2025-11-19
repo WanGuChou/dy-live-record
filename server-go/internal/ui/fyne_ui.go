@@ -926,9 +926,6 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return 0, fmt.Errorf("解析礼物数据失败: %w", err)
 	}
-	if len(result.Data.GiftInfo) == 0 {
-		return 0, fmt.Errorf("未获取到礼物数据")
-	}
 
 	if err := os.MkdirAll(giftIconStoragePath, 0755); err != nil {
 		return 0, err
