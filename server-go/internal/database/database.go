@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -153,11 +154,64 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_room_gift_binding ON room_gift_bindings(room_id);
 	`
 
-	_, err := db.conn.Exec(schema)
-	return err
+	if _, err := db.conn.Exec(schema); err != nil {
+		return err
+	}
+	return ensureAnchorExtraColumns(db.conn)
 }
 
 // GetConnection 获取原始数据库连接（用于复杂查询）
 func (db *DB) GetConnection() *sql.DB {
 	return db.conn
+}
+
+func ensureAnchorExtraColumns(conn *sql.DB) error {
+	if err := addColumnIfMissing(conn, "anchors", "avatar_url", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(conn, "anchors", "is_deleted", "INTEGER DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(conn, "anchors", "deleted_at", "TIMESTAMP"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func addColumnIfMissing(conn *sql.DB, table, column, definition string) error {
+	exists, err := columnExists(conn, table, column)
+	if err != nil || exists {
+		return err
+	}
+	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
+	if _, err := conn.Exec(stmt); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func columnExists(conn *sql.DB, table, column string) (bool, error) {
+	rows, err := conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull int
+		var defaultValue interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if strings.EqualFold(name, column) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }

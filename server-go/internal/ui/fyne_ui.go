@@ -96,6 +96,14 @@ type RoomTab struct {
 	AnchorGiftCountEntry *widget.Entry
 	AnchorScoreEntry     *widget.Entry
 	AnchorStatus         *widget.Label
+	AnchorPicker         *widget.Select
+	AnchorOptionMap      map[string]AnchorOption
+}
+
+type AnchorOption struct {
+	ID     string
+	Name   string
+	Avatar string
 }
 
 // FyneUI Fyne 图形界面
@@ -394,42 +402,95 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 			}
 		},
 	)
+	table.OnSelected = func(id widget.TableCellID) {
+		if id.Row <= 0 || id.Row >= len(data) {
+			return
+		}
+		row := data[id.Row]
+		idEntry.SetText(row[0])
+		nameEntry.SetText(row[1])
+		avatarEntry.SetText(row[2])
+		deletedCheck.SetChecked(row[3] == "是")
+		giftsEntry.SetText(row[4])
+	}
 
 	idEntry := widget.NewEntry()
 	idEntry.SetPlaceHolder("主播ID")
 	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("主播名称")
+	nameEntry.SetPlaceHolder("主播昵称")
+	avatarEntry := widget.NewEntry()
+	avatarEntry.SetPlaceHolder("头像 URL")
 	giftsEntry := widget.NewEntry()
 	giftsEntry.SetPlaceHolder("绑定礼物（逗号分隔）")
+	deletedCheck := widget.NewCheck("标记删除", nil)
+
+	resetForm := func() {
+		idEntry.SetText("")
+		nameEntry.SetText("")
+		avatarEntry.SetText("")
+		giftsEntry.SetText("")
+		deletedCheck.SetChecked(false)
+	}
 
 	saveBtn := widget.NewButton("保存/更新主播", func() {
-		if idEntry.Text == "" || nameEntry.Text == "" {
+		if ui.db == nil {
 			return
 		}
+		id := strings.TrimSpace(idEntry.Text)
+		name := strings.TrimSpace(nameEntry.Text)
+		if id == "" || name == "" {
+			return
+		}
+		gifts := strings.TrimSpace(giftsEntry.Text)
+		avatar := strings.TrimSpace(avatarEntry.Text)
+		deleted := 0
+		var deletedAt interface{}
+		if deletedCheck.Checked {
+			deleted = 1
+			deletedAt = time.Now()
+		} else {
+			deletedAt = nil
+		}
+
 		_, err := ui.db.Exec(`
-			INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, updated_at)
-			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-			ON CONFLICT(anchor_id) DO UPDATE SET anchor_name=excluded.anchor_name, bound_gifts=excluded.bound_gifts, updated_at=CURRENT_TIMESTAMP
-		`, idEntry.Text, nameEntry.Text, giftsEntry.Text)
+			INSERT INTO anchors (anchor_id, anchor_name, avatar_url, bound_gifts, is_deleted, deleted_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(anchor_id) DO UPDATE SET 
+				anchor_name=excluded.anchor_name,
+				avatar_url=excluded.avatar_url,
+				bound_gifts=excluded.bound_gifts,
+				is_deleted=excluded.is_deleted,
+				deleted_at=excluded.deleted_at,
+				updated_at=CURRENT_TIMESTAMP
+		`, id, name, avatar, gifts, deleted, deletedAt)
 		if err != nil {
 			log.Printf("⚠️  保存主播失败: %v", err)
 			return
 		}
+		resetForm()
 		data = ui.loadAllAnchors()
 		table.Refresh()
+		ui.refreshAllAnchorPickers()
 	})
 
 	refreshBtn := widget.NewButton("刷新", func() {
 		data = ui.loadAllAnchors()
 		table.Refresh()
+		ui.refreshAllAnchorPickers()
+	})
+
+	clearBtn := widget.NewButton("清空", func() {
+		resetForm()
 	})
 
 	form := container.NewVBox(
 		widget.NewLabel("主播管理"),
 		idEntry,
 		nameEntry,
+		avatarEntry,
 		giftsEntry,
-		container.NewHBox(saveBtn, refreshBtn),
+		deletedCheck,
+		container.NewHBox(saveBtn, refreshBtn, clearBtn),
 	)
 
 	return container.NewBorder(
@@ -628,12 +689,17 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 }
 
 func (ui *FyneUI) loadAllAnchors() [][]string {
-	rows := [][]string{{"主播ID", "主播名称", "绑定礼物", "创建时间", "更新时间"}}
+	rows := [][]string{{"主播ID", "主播昵称", "头像", "已删除", "绑定礼物", "添加时间", "删除时间"}}
 	if ui.db == nil {
 		return rows
 	}
 
-	query := `SELECT anchor_id, anchor_name, bound_gifts, created_at, updated_at FROM anchors ORDER BY updated_at DESC`
+	query := `
+		SELECT anchor_id, anchor_name, COALESCE(avatar_url, ''), COALESCE(is_deleted, 0),
+		       bound_gifts, created_at, deleted_at
+		FROM anchors
+		ORDER BY updated_at DESC
+	`
 	data, err := ui.db.Query(query)
 	if err != nil {
 		return rows
@@ -641,20 +707,87 @@ func (ui *FyneUI) loadAllAnchors() [][]string {
 	defer data.Close()
 
 	for data.Next() {
-		var id, name, gifts string
-		var created, updated time.Time
-		if err := data.Scan(&id, &name, &gifts, &created, &updated); err != nil {
+		var id, name, gifts, avatar string
+		var created time.Time
+		var deleted sql.NullTime
+		var isDeleted int
+		if err := data.Scan(&id, &name, &avatar, &isDeleted, &gifts, &created, &deleted); err != nil {
 			continue
+		}
+		deletedStr := ""
+		if deleted.Valid {
+			deletedStr = deleted.Time.Format("01-02 15:04")
 		}
 		rows = append(rows, []string{
 			id,
 			name,
+			avatar,
+			formatBoolLabel(isDeleted == 1),
 			gifts,
 			created.Format("01-02 15:04"),
-			updated.Format("01-02 15:04"),
+			deletedStr,
 		})
 	}
 	return rows
+}
+
+func formatBoolLabel(val bool) string {
+	if val {
+		return "是"
+	}
+	return "否"
+}
+
+func (ui *FyneUI) loadAnchorOptions(includeDeleted bool) []AnchorOption {
+	options := make([]AnchorOption, 0)
+	if ui.db == nil {
+		return options
+	}
+	query := `SELECT anchor_id, anchor_name, COALESCE(avatar_url, '') FROM anchors`
+	if !includeDeleted {
+		query += ` WHERE COALESCE(is_deleted, 0) = 0`
+	}
+	query += ` ORDER BY anchor_name`
+	rows, err := ui.db.Query(query)
+	if err != nil {
+		return options
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var opt AnchorOption
+		if err := rows.Scan(&opt.ID, &opt.Name, &opt.Avatar); err != nil {
+			continue
+		}
+		options = append(options, opt)
+	}
+	return options
+}
+
+func (ui *FyneUI) refreshRoomAnchorPicker(roomTab *RoomTab) {
+	if roomTab == nil || roomTab.AnchorPicker == nil {
+		return
+	}
+	options := ui.loadAnchorOptions(false)
+	labels := make([]string, 0, len(options))
+	roomTab.AnchorOptionMap = make(map[string]AnchorOption, len(options))
+	for _, opt := range options {
+		label := fmt.Sprintf("%s | %s", opt.ID, opt.Name)
+		labels = append(labels, label)
+		roomTab.AnchorOptionMap[label] = opt
+	}
+	roomTab.AnchorPicker.Options = labels
+	roomTab.AnchorPicker.Selected = ""
+	roomTab.AnchorPicker.Refresh()
+}
+
+func (ui *FyneUI) refreshAllAnchorPickers() {
+	if ui.roomTabs == nil {
+		return
+	}
+	for _, tab := range ui.roomTabs {
+		ui.refreshRoomAnchorPicker(tab)
+	}
 }
 
 func (ui *FyneUI) loadAllGifts() [][]string {
@@ -1658,6 +1791,7 @@ func (ui *FyneUI) refreshRoomTables(roomTab *RoomTab) {
 	if roomTab.SegmentTable != nil {
 		roomTab.SegmentTable.Refresh()
 	}
+	ui.refreshRoomAnchorPicker(roomTab)
 }
 
 func (ui *FyneUI) initRoomGiftTable(roomTab *RoomTab) {
@@ -1712,6 +1846,19 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 	table.SetColumnWidth(3, 100)
 	table.SetColumnWidth(4, 100)
 	roomTab.AnchorTable = table
+
+	roomTab.AnchorOptionMap = make(map[string]AnchorOption)
+	anchorPicker := widget.NewSelect([]string{}, func(val string) {
+		if roomTab.AnchorOptionMap == nil {
+			return
+		}
+		if opt, ok := roomTab.AnchorOptionMap[val]; ok {
+			roomTab.AnchorIDEntry.SetText(opt.ID)
+			roomTab.AnchorNameEntry.SetText(opt.Name)
+		}
+	})
+	anchorPicker.PlaceHolder = "选择全局主播"
+	roomTab.AnchorPicker = anchorPicker
 
 	idEntry := widget.NewEntry()
 	idEntry.SetPlaceHolder("主播ID")
@@ -1778,6 +1925,11 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 	}
 
 	form := container.NewVBox(
+		widget.NewLabel("选择全局主播"),
+		container.NewHBox(anchorPicker, widget.NewButton("刷新", func() {
+			ui.refreshRoomAnchorPicker(roomTab)
+		})),
+		widget.NewSeparator(),
 		widget.NewLabel("主播信息"),
 		widget.NewLabel("主播ID"),
 		idEntry,
@@ -1798,6 +1950,8 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		container.NewPadded(form),
 	)
 	content.SetOffset(0.55)
+
+	ui.refreshRoomAnchorPicker(roomTab)
 
 	return content
 }
