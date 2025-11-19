@@ -941,20 +941,21 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 		return 0, fmt.Errorf("解析礼物数据失败: %w", err)
 	}
 
-	if err := os.MkdirAll(giftIconStoragePath, 0755); err != nil {
-		return 0, err
-	}
-
-	tx, err := ui.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
-	inserted := 0
 	giftItems := result.Data.GiftsInfo.GiftItems
 	if len(giftItems) == 0 && len(result.Data.GiftsInfo.GiftInfo) > 0 {
 		giftItems = result.Data.GiftsInfo.GiftInfo
+	}
+
+	if len(giftItems) == 0 {
+		gjsonItems := gjson.GetBytes(rawBody, "data.gifts_info.gift_items")
+		if gjsonItems.Exists() && gjsonItems.IsArray() && len(gjsonItems.Array()) > 0 {
+			for _, item := range gjsonItems.Array() {
+				var parsed douyinGiftItem
+				if err := json.Unmarshal([]byte(item.Raw), &parsed); err == nil {
+					giftItems = append(giftItems, parsed)
+				}
+			}
+		}
 	}
 	log.Printf("ℹ️  抓取礼物列表 gift_items 条数: %d", len(giftItems))
 	if len(giftItems) > 0 {
@@ -968,6 +969,17 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 		return 0, fmt.Errorf("未获取到礼物数据")
 	}
 
+	if err := os.MkdirAll(giftIconStoragePath, 0755); err != nil {
+		return 0, err
+	}
+
+	tx, err := ui.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	inserted := 0
 	for _, gift := range giftItems {
 		giftID := strconv.FormatInt(gift.ID, 10)
 		iconURL := gift.Icon.FirstURL()
