@@ -21,7 +21,9 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/flopp/go-findfont"
@@ -389,22 +391,23 @@ func (ui *FyneUI) createOverviewTab() fyne.CanvasObject {
 func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 	data := ui.loadAllAnchors()
 
+	statusLabel := widget.NewLabel("")
+
 	idEntry := widget.NewEntry()
 	idEntry.SetPlaceHolder("主播ID")
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("主播昵称")
 	avatarEntry := widget.NewEntry()
-	avatarEntry.SetPlaceHolder("头像 URL")
-	giftsEntry := widget.NewEntry()
-	giftsEntry.SetPlaceHolder("绑定礼物（逗号分隔）")
+	avatarEntry.SetPlaceHolder("头像路径")
+	avatarEntry.Disable()
 	deletedCheck := widget.NewCheck("标记删除", nil)
 
 	resetForm := func() {
 		idEntry.SetText("")
 		nameEntry.SetText("")
 		avatarEntry.SetText("")
-		giftsEntry.SetText("")
 		deletedCheck.SetChecked(false)
+		statusLabel.SetText("")
 	}
 
 	table := widget.NewTable(
@@ -423,6 +426,12 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 			}
 		},
 	)
+	table.SetColumnWidth(0, 160)
+	table.SetColumnWidth(1, 160)
+	table.SetColumnWidth(2, 240)
+	table.SetColumnWidth(3, 90)
+	table.SetColumnWidth(4, 140)
+	table.SetColumnWidth(5, 140)
 	table.OnSelected = func(id widget.TableCellID) {
 		if id.Row <= 0 || id.Row >= len(data) {
 			return
@@ -432,7 +441,6 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 		nameEntry.SetText(row[1])
 		avatarEntry.SetText(row[2])
 		deletedCheck.SetChecked(row[3] == "是")
-		giftsEntry.SetText(row[4])
 	}
 
 	saveBtn := widget.NewButton("保存/更新主播", func() {
@@ -444,7 +452,6 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 		if id == "" || name == "" {
 			return
 		}
-		gifts := strings.TrimSpace(giftsEntry.Text)
 		avatar := strings.TrimSpace(avatarEntry.Text)
 		deleted := 0
 		var deletedAt interface{}
@@ -457,42 +464,92 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 
 		_, err := ui.db.Exec(`
 			INSERT INTO anchors (anchor_id, anchor_name, avatar_url, bound_gifts, is_deleted, deleted_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			VALUES (?, ?, ?, '', ?, ?, CURRENT_TIMESTAMP)
 			ON CONFLICT(anchor_id) DO UPDATE SET 
 				anchor_name=excluded.anchor_name,
 				avatar_url=excluded.avatar_url,
-				bound_gifts=excluded.bound_gifts,
 				is_deleted=excluded.is_deleted,
 				deleted_at=excluded.deleted_at,
 				updated_at=CURRENT_TIMESTAMP
-		`, id, name, avatar, gifts, deleted, deletedAt)
+		`, id, name, avatar, deleted, deletedAt)
 		if err != nil {
 			log.Printf("⚠️  保存主播失败: %v", err)
+			statusLabel.SetText(fmt.Sprintf("保存失败: %v", err))
 			return
 		}
 		resetForm()
 		data = ui.loadAllAnchors()
 		table.Refresh()
 		ui.refreshAllAnchorPickers()
+		statusLabel.SetText("✅ 主播信息已保存")
 	})
 
 	refreshBtn := widget.NewButton("刷新", func() {
 		data = ui.loadAllAnchors()
 		table.Refresh()
 		ui.refreshAllAnchorPickers()
+		statusLabel.SetText("已刷新")
 	})
 
 	clearBtn := widget.NewButton("清空", func() {
 		resetForm()
 	})
 
+	uploadBtn := widget.NewButton("上传头像", func() {
+		if ui.mainWin == nil {
+			statusLabel.SetText("请先打开主窗口")
+			return
+		}
+		fileDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil {
+				statusLabel.SetText(fmt.Sprintf("选择文件失败: %v", err))
+				return
+			}
+			if reader == nil {
+				return
+			}
+			defer reader.Close()
+
+			dataBytes, err := io.ReadAll(reader)
+			if err != nil {
+				statusLabel.SetText(fmt.Sprintf("读取文件失败: %v", err))
+				return
+			}
+
+			ext := filepath.Ext(reader.URI().Name())
+			if ext == "" {
+				ext = ".png"
+			}
+			dstDir := filepath.Join("assets", "anchor_avatars")
+			if err := os.MkdirAll(dstDir, 0755); err != nil {
+				statusLabel.SetText(fmt.Sprintf("创建目录失败: %v", err))
+				return
+			}
+			filename := reader.URI().Name()
+			if trimmed := strings.TrimSpace(idEntry.Text); trimmed != "" {
+				filename = trimmed + ext
+			}
+			dstPath := filepath.Join(dstDir, filename)
+			if err := os.WriteFile(dstPath, dataBytes, 0644); err != nil {
+				statusLabel.SetText(fmt.Sprintf("保存头像失败: %v", err))
+				return
+			}
+			avatarEntry.Enable()
+			avatarEntry.SetText(filepath.ToSlash(dstPath))
+			avatarEntry.Disable()
+			statusLabel.SetText("头像上传成功")
+		}, ui.mainWin)
+		fileDialog.SetFilter(storage.NewExtensionFileFilter([]string{".png", ".jpg", ".jpeg", ".gif", ".webp"}))
+		fileDialog.Show()
+	})
+
 	form := container.NewVBox(
 		widget.NewLabel("主播管理"),
 		idEntry,
 		nameEntry,
-		avatarEntry,
-		giftsEntry,
+		container.NewHBox(avatarEntry, uploadBtn),
 		deletedCheck,
+		statusLabel,
 		container.NewHBox(saveBtn, refreshBtn, clearBtn),
 	)
 
@@ -719,14 +776,14 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 }
 
 func (ui *FyneUI) loadAllAnchors() [][]string {
-	rows := [][]string{{"主播ID", "主播昵称", "头像", "已删除", "绑定礼物", "添加时间", "删除时间"}}
+	rows := [][]string{{"主播ID", "主播昵称", "头像", "已删除", "添加时间", "删除时间"}}
 	if ui.db == nil {
 		return rows
 	}
 
 	query := `
 		SELECT anchor_id, anchor_name, COALESCE(avatar_url, ''), COALESCE(is_deleted, 0),
-		       bound_gifts, created_at, deleted_at
+		       created_at, deleted_at
 		FROM anchors
 		ORDER BY updated_at DESC
 	`
@@ -737,11 +794,11 @@ func (ui *FyneUI) loadAllAnchors() [][]string {
 	defer data.Close()
 
 	for data.Next() {
-		var id, name, gifts, avatar string
+		var id, name, avatar string
 		var created time.Time
 		var deleted sql.NullTime
 		var isDeleted int
-		if err := data.Scan(&id, &name, &avatar, &isDeleted, &gifts, &created, &deleted); err != nil {
+		if err := data.Scan(&id, &name, &avatar, &isDeleted, &created, &deleted); err != nil {
 			continue
 		}
 		deletedStr := ""
@@ -753,7 +810,6 @@ func (ui *FyneUI) loadAllAnchors() [][]string {
 			name,
 			avatar,
 			formatBoolLabel(isDeleted == 1),
-			gifts,
 			created.Format("01-02 15:04"),
 			deletedStr,
 		})
