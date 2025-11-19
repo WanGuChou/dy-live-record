@@ -25,6 +25,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/flopp/go-findfont"
+	"github.com/tidwall/gjson"
 	"github.com/xuri/excelize/v2"
 
 	"dy-live-monitor/internal/config"
