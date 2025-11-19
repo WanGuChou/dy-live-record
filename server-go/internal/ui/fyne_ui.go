@@ -942,7 +942,7 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 
 	inserted := 0
 	giftItems := result.Data.GiftsInfo.GiftItems
-	if len(giftItems) == 0 {
+	if len(giftItems) == 0 && len(result.Data.GiftsInfo.GiftInfo) > 0 {
 		giftItems = result.Data.GiftsInfo.GiftInfo
 	}
 	if len(giftItems) == 0 {
