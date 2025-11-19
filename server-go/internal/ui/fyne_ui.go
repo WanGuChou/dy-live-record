@@ -856,16 +856,21 @@ const (
 )
 
 type douyinGiftResponse struct {
-	StatusCode int              `json:"status_code"`
-	Message    string           `json:"message"`
-	Data       douyinGiftResult `json:"data"`
+	StatusCode int            `json:"status_code"`
+	Message    string         `json:"message"`
+	Data       douyinGiftData `json:"data"`
 }
 
-type douyinGiftResult struct {
-	GiftInfo []douyinGiftInfo `json:"gift_info"`
+type douyinGiftData struct {
+	GiftsInfo douyinGiftsInfo `json:"gifts_info"`
 }
 
-type douyinGiftInfo struct {
+type douyinGiftsInfo struct {
+	GiftItems []douyinGiftItem `json:"gift_items"`
+	GiftInfo  []douyinGiftItem `json:"gift_info"`
+}
+
+type douyinGiftItem struct {
 	ID           int64           `json:"id"`
 	Name         string          `json:"name"`
 	DiamondCount int             `json:"diamond_count"`
@@ -936,7 +941,15 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 	defer tx.Rollback()
 
 	inserted := 0
-	for _, gift := range result.Data.GiftInfo {
+	giftItems := result.Data.GiftsInfo.GiftItems
+	if len(giftItems) == 0 {
+		giftItems = result.Data.GiftsInfo.GiftInfo
+	}
+	if len(giftItems) == 0 {
+		return 0, fmt.Errorf("未获取到礼物数据")
+	}
+
+	for _, gift := range giftItems {
 		giftID := strconv.FormatInt(gift.ID, 10)
 		iconURL := gift.Icon.FirstURL()
 		if iconURL == "" {
