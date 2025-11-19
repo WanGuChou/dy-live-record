@@ -942,20 +942,32 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 		return 0, fmt.Errorf("解析礼物数据失败: %w", err)
 	}
 
-	giftItems := result.Data.GiftsInfo.GiftItems
-	if len(giftItems) == 0 && len(result.Data.GiftsInfo.GiftInfo) > 0 {
-		giftItems = result.Data.GiftsInfo.GiftInfo
-	}
-
-	if len(giftItems) == 0 {
-		gjsonItems := gjson.GetBytes(rawBody, "data.gifts_info.gift_items")
-		if gjsonItems.Exists() && gjsonItems.IsArray() && len(gjsonItems.Array()) > 0 {
-			for _, item := range gjsonItems.Array() {
+	giftItems := make([]douyinGiftItem, 0)
+	gjsonItems := gjson.Get(bodyStr, "..gift_items")
+	if gjsonItems.Exists() && gjsonItems.IsArray() {
+		for _, item := range gjsonItems.Array() {
+			if len(item.Array()) == 0 && item.IsObject() {
 				var parsed douyinGiftItem
 				if err := json.Unmarshal([]byte(item.Raw), &parsed); err == nil {
 					giftItems = append(giftItems, parsed)
 				}
+				continue
 			}
+			for _, sub := range item.Array() {
+				if !sub.Exists() || !sub.IsObject() {
+					continue
+				}
+				var parsed douyinGiftItem
+				if err := json.Unmarshal([]byte(sub.Raw), &parsed); err == nil {
+					giftItems = append(giftItems, parsed)
+				}
+			}
+		}
+	}
+	if len(giftItems) == 0 {
+		giftItems = result.Data.GiftsInfo.GiftItems
+		if len(giftItems) == 0 && len(result.Data.GiftsInfo.GiftInfo) > 0 {
+			giftItems = result.Data.GiftsInfo.GiftInfo
 		}
 	}
 	log.Printf("ℹ️  抓取礼物列表 gift_items 条数: %d", len(giftItems))
