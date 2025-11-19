@@ -922,8 +922,22 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 		return 0, fmt.Errorf("抖音接口返回状态 %d", resp.StatusCode)
 	}
 
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("读取礼物数据失败: %w", err)
+	}
+
+	bodyStr := strings.TrimSpace(string(rawBody))
+	if bodyStr == "" || (!strings.HasPrefix(bodyStr, "{") && !strings.HasPrefix(bodyStr, "[")) {
+		return 0, fmt.Errorf("礼物接口返回的不是 JSON 数据: %s", truncateString(bodyStr, 64))
+	}
+
+	if ui.cfg != nil && ui.cfg.Debug.VerboseLog {
+		log.Printf("🧾 礼物接口原始 body: %s", truncateString(bodyStr, 256))
+	}
+
 	var result douyinGiftResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(rawBody, &result); err != nil {
 		return 0, fmt.Errorf("解析礼物数据失败: %w", err)
 	}
 
@@ -942,6 +956,7 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 	if len(giftItems) == 0 && len(result.Data.GiftsInfo.GiftInfo) > 0 {
 		giftItems = result.Data.GiftsInfo.GiftInfo
 	}
+	log.Printf("ℹ️  抓取礼物列表 gift_items 条数: %d", len(giftItems))
 	if len(giftItems) == 0 {
 		return 0, fmt.Errorf("未获取到礼物数据")
 	}
@@ -1021,6 +1036,13 @@ func (ui *FyneUI) downloadGiftIcon(giftID string, rawURL string) (string, error)
 	}
 
 	return filepath.ToSlash(fullPath), nil
+}
+
+func truncateString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) [][]string {
