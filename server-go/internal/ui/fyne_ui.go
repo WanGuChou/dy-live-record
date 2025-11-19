@@ -6,7 +6,9 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -518,6 +520,8 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		},
 	)
 
+	statusLabel := widget.NewLabel("")
+
 	idEntry := widget.NewEntry()
 	idEntry.SetPlaceHolder("礼物ID")
 	nameEntry := widget.NewEntry()
@@ -568,8 +572,33 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		ui.updateOverviewStatus(fmt.Sprintf("已将礼物 %s 绑定到主播 %s", bindGiftEntry.Text, bindAnchorEntry.Text))
 	})
 
+	var latestBtn *widget.Button
+	latestBtn = widget.NewButton("更新最新礼物列表", func() {
+		if ui.db == nil {
+			statusLabel.SetText("数据库未初始化")
+			return
+		}
+		latestBtn.Disable()
+		statusLabel.SetText("正在从抖音获取礼物列表...")
+		go func() {
+			count, err := ui.fetchAndStoreLatestGifts()
+			ui.runOnMain(func() {
+				latestBtn.Enable()
+				if err != nil {
+					statusLabel.SetText(fmt.Sprintf("更新失败: %v", err))
+					return
+				}
+				data = ui.loadAllGifts()
+				table.Refresh()
+				statusLabel.SetText(fmt.Sprintf("已同步 %d 个礼物", count))
+			})
+		}()
+	})
+
 	toolbar := container.NewVBox(
 		widget.NewLabel("礼物维护"),
+		latestBtn,
+		statusLabel,
 		idEntry,
 		nameEntry,
 		diamondEntry,
@@ -819,6 +848,169 @@ func (ui *FyneUI) loadAllGifts() [][]string {
 		})
 	}
 	return rows
+}
+
+const (
+	douyinGiftListAPI   = "https://live.douyin.com/webcast/gift/list/?device_platform=webapp&aid=6383"
+	giftIconStoragePath = "assets/gift_icons"
+)
+
+type douyinGiftResponse struct {
+	StatusCode int              `json:"status_code"`
+	Message    string           `json:"message"`
+	Data       douyinGiftResult `json:"data"`
+}
+
+type douyinGiftResult struct {
+	GiftInfo []douyinGiftInfo `json:"gift_info"`
+}
+
+type douyinGiftInfo struct {
+	ID           int64           `json:"id"`
+	Name         string          `json:"name"`
+	DiamondCount int             `json:"diamond_count"`
+	Icon         douyinGiftIcon  `json:"icon"`
+	Picture      douyinGiftIcon  `json:"picture"`
+	Describe     string          `json:"describe"`
+	GiftLabel    json.RawMessage `json:"gift_label"`
+}
+
+type douyinGiftIcon struct {
+	URLList []string `json:"url_list"`
+	URI     string   `json:"uri"`
+}
+
+func (icon douyinGiftIcon) FirstURL() string {
+	for _, url := range icon.URLList {
+		if trimmed := strings.TrimSpace(url); trimmed != "" {
+			return trimmed
+		}
+	}
+	if strings.TrimSpace(icon.URI) != "" {
+		if strings.HasPrefix(icon.URI, "http") {
+			return icon.URI
+		}
+		return "https://p3-webcast.douyinpic.com/" + strings.TrimLeft(icon.URI, "/")
+	}
+	return ""
+}
+
+func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
+	if ui.db == nil {
+		return 0, fmt.Errorf("数据库未初始化")
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, douyinGiftListAPI, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("抖音接口返回状态 %d", resp.StatusCode)
+	}
+
+	var result douyinGiftResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("解析礼物数据失败: %w", err)
+	}
+	if len(result.Data.GiftInfo) == 0 {
+		return 0, fmt.Errorf("未获取到礼物数据")
+	}
+
+	if err := os.MkdirAll(giftIconStoragePath, 0755); err != nil {
+		return 0, err
+	}
+
+	tx, err := ui.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	inserted := 0
+	for _, gift := range result.Data.GiftInfo {
+		giftID := strconv.FormatInt(gift.ID, 10)
+		iconURL := gift.Icon.FirstURL()
+		if iconURL == "" {
+			iconURL = gift.Picture.FirstURL()
+		}
+		iconPath := ""
+		if iconURL != "" {
+			path, err := ui.downloadGiftIcon(giftID, iconURL)
+			if err != nil {
+				log.Printf("⚠️  下载礼物图标失败(%s): %v", giftID, err)
+			} else {
+				iconPath = path
+			}
+		}
+
+		_, err := tx.Exec(`
+			INSERT INTO gifts (gift_id, gift_name, diamond_value, icon, version, updated_at)
+			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(gift_id) DO UPDATE SET 
+				gift_name=excluded.gift_name,
+				diamond_value=excluded.diamond_value,
+				icon=excluded.icon,
+				version=excluded.version,
+				updated_at=CURRENT_TIMESTAMP
+		`, giftID, strings.TrimSpace(gift.Name), gift.DiamondCount, iconPath, "douyin_api")
+		if err != nil {
+			log.Printf("⚠️  保存礼物 %s 失败: %v", giftID, err)
+			continue
+		}
+		inserted++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return inserted, nil
+}
+
+func (ui *FyneUI) downloadGiftIcon(giftID string, rawURL string) (string, error) {
+	if strings.TrimSpace(rawURL) == "" {
+		return "", nil
+	}
+	resp, err := http.Get(rawURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("下载礼物图标失败: %s", resp.Status)
+	}
+
+	ext := filepath.Ext(strings.Split(rawURL, "?")[0])
+	if ext == "" || len(ext) > 5 {
+		ext = ".png"
+	}
+
+	if err := os.MkdirAll(giftIconStoragePath, 0755); err != nil {
+		return "", err
+	}
+
+	fullPath := filepath.Join(giftIconStoragePath, fmt.Sprintf("%s%s", giftID, ext))
+	file, err := os.Create(fullPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		return "", err
+	}
+
+	return filepath.ToSlash(fullPath), nil
 }
 
 func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) [][]string {
@@ -2217,6 +2409,14 @@ func toInt(value interface{}) int {
 	default:
 		return 0
 	}
+}
+
+func (ui *FyneUI) runOnMain(f func()) {
+	if ui == nil || ui.app == nil || ui.app.Driver() == nil {
+		f()
+		return
+	}
+	ui.app.Driver().RunOnMain(f)
 }
 
 // updateOverviewStatus 更新概览页状态文本
