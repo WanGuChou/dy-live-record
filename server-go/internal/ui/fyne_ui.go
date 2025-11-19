@@ -388,6 +388,24 @@ func (ui *FyneUI) createOverviewTab() fyne.CanvasObject {
 func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 	data := ui.loadAllAnchors()
 
+	idEntry := widget.NewEntry()
+	idEntry.SetPlaceHolder("主播ID")
+	nameEntry := widget.NewEntry()
+	nameEntry.SetPlaceHolder("主播昵称")
+	avatarEntry := widget.NewEntry()
+	avatarEntry.SetPlaceHolder("头像 URL")
+	giftsEntry := widget.NewEntry()
+	giftsEntry.SetPlaceHolder("绑定礼物（逗号分隔）")
+	deletedCheck := widget.NewCheck("标记删除", nil)
+
+	resetForm := func() {
+		idEntry.SetText("")
+		nameEntry.SetText("")
+		avatarEntry.SetText("")
+		giftsEntry.SetText("")
+		deletedCheck.SetChecked(false)
+	}
+
 	table := widget.NewTable(
 		func() (int, int) {
 			if len(data) == 0 {
@@ -414,24 +432,6 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 		avatarEntry.SetText(row[2])
 		deletedCheck.SetChecked(row[3] == "是")
 		giftsEntry.SetText(row[4])
-	}
-
-	idEntry := widget.NewEntry()
-	idEntry.SetPlaceHolder("主播ID")
-	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("主播昵称")
-	avatarEntry := widget.NewEntry()
-	avatarEntry.SetPlaceHolder("头像 URL")
-	giftsEntry := widget.NewEntry()
-	giftsEntry.SetPlaceHolder("绑定礼物（逗号分隔）")
-	deletedCheck := widget.NewCheck("标记删除", nil)
-
-	resetForm := func() {
-		idEntry.SetText("")
-		nameEntry.SetText("")
-		avatarEntry.SetText("")
-		giftsEntry.SetText("")
-		deletedCheck.SetChecked(false)
 	}
 
 	saveBtn := widget.NewButton("保存/更新主播", func() {
@@ -2412,11 +2412,20 @@ func toInt(value interface{}) int {
 }
 
 func (ui *FyneUI) runOnMain(f func()) {
-	if ui == nil || ui.app == nil || ui.app.Driver() == nil {
+	if f == nil {
+		return
+	}
+	if ui == nil || ui.app == nil {
 		f()
 		return
 	}
-	ui.app.Driver().RunOnMain(f)
+	if drv := ui.app.Driver(); drv != nil {
+		if runner, ok := drv.(interface{ RunOnMain(func()) }); ok {
+			runner.RunOnMain(f)
+			return
+		}
+	}
+	f()
 }
 
 // updateOverviewStatus 更新概览页状态文本
