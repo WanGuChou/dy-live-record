@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +87,12 @@ type RoomTab struct {
 	GiftRows      [][]string
 	AnchorRows    [][]string
 	SegmentRows   [][]string
+	AnchorIDEntry       *widget.Entry
+	AnchorNameEntry     *widget.Entry
+	AnchorGiftsEntry    *widget.Entry
+	AnchorGiftCountEntry *widget.Entry
+	AnchorScoreEntry    *widget.Entry
+	AnchorStatus        *widget.Label
 }
 
 // FyneUI Fyne 图形界面
@@ -1064,6 +1071,7 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 		ui.applyRoomFilter(roomTab)
 		if roomTab.MessagesList != nil {
 			roomTab.MessagesList.Refresh()
+			roomTab.MessagesList.ScrollToTop()
 		}
 	})
 
@@ -1105,13 +1113,13 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	)
 
 	ui.initRoomGiftTable(roomTab)
-	ui.initRoomAnchorTable(roomTab)
+	anchorContent := ui.initRoomAnchorTable(roomTab)
 	ui.initRoomSegmentTable(roomTab)
 
 	roomTab.SubTabs = container.NewAppTabs(
 		container.NewTabItem("消息记录", messagesTab),
 		container.NewTabItem("礼物记录", container.NewScroll(roomTab.GiftTable)),
-		container.NewTabItem("主播管理", container.NewScroll(roomTab.AnchorTable)),
+		container.NewTabItem("主播管理", anchorContent),
 		container.NewTabItem("分段记分", container.NewScroll(roomTab.SegmentTable)),
 	)
 
@@ -1192,9 +1200,20 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 	if parsed.ReceivedAt.IsZero() {
 		parsed.ReceivedAt = time.Now()
 	}
+	if parsed.Detail == nil {
+		parsed.Detail = make(map[string]interface{})
+	}
+	parsed.Detail["timestamp"] = parsed.ReceivedAt.Format(time.RFC3339)
+	displayText := parsed.Display
+	if !parsed.ReceivedAt.IsZero() {
+		displayText = fmt.Sprintf("[%s] %s", parsed.ReceivedAt.Format("15:04:05"), parsed.Display)
+	}
 
 	ui.AddOrUpdateRoom(roomID)
 	roomTab := ui.roomTabs[roomID]
+	if roomTab.MessageFilter == "" {
+		roomTab.MessageFilter = "全部"
+	}
 
 	source := fmt.Sprintf("%v", parsed.Detail["source"])
 	if source == "<nil>" || source == "" {
@@ -1202,7 +1221,7 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 	}
 	pair := &MessagePair{
 		Parsed:    parsed,
-		Display:   parsed.Display,
+		Display:   displayText,
 		Detail:    parsed.Detail,
 		Timestamp: parsed.ReceivedAt,
 		Source:    source,
@@ -1212,14 +1231,13 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 		ui.handleGiftAssignment(roomID, pair.Detail)
 	}
 
-	roomTab.MessagePairs = append(roomTab.MessagePairs, pair)
-	if len(roomTab.MessagePairs) > 300 {
-		roomTab.MessagePairs = roomTab.MessagePairs[len(roomTab.MessagePairs)-300:]
-	}
+	roomTab.MessagePairs = append([]*MessagePair{pair}, roomTab.MessagePairs...)
 
 	ui.applyRoomFilter(roomTab)
-	roomTab.MessagesList.Refresh()
-	roomTab.MessagesList.ScrollToBottom()
+	if roomTab.MessagesList != nil {
+		roomTab.MessagesList.Refresh()
+		roomTab.MessagesList.ScrollToTop()
+	}
 	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 消息: %d 条", roomID, len(roomTab.MessagePairs)))
 
 	if persist && ui.wsServer != nil {
@@ -1235,7 +1253,11 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 
 func (ui *FyneUI) applyRoomFilter(roomTab *RoomTab) {
 	filter := roomTab.MessageFilter
-	if filter == "" || filter == "全部" {
+	if filter == "" {
+		filter = "全部"
+		roomTab.MessageFilter = filter
+	}
+	if filter == "全部" {
 		roomTab.FilteredPairs = append([]*MessagePair(nil), roomTab.MessagePairs...)
 		return
 	}
@@ -1270,6 +1292,7 @@ func (ui *FyneUI) handleGiftAssignment(roomID string, detail map[string]interfac
 	}
 
 	ui.ensureRoomAnchorRecord(roomID, anchorID, anchorName)
+	ui.ensureGlobalAnchor(anchorID, anchorName)
 	ui.incrementAnchorScore(roomID, anchorID, toInt(detail["groupCount"]), toInt(detail["diamondCount"]))
 
 	if roomTab, ok := ui.roomTabs[roomID]; ok {
@@ -1341,6 +1364,16 @@ func (ui *FyneUI) refreshRoomTables(roomTab *RoomTab) {
 		roomTab.SegmentTable.Refresh()
 	}
 }
+
+func (ui *FyneUI) ensureGlobalAnchor(anchorID, anchorName string) {
+	if ui.db == nil || anchorID == "" {
+		return
+	}
+	if strings.TrimSpace(anchorName) == "" {
+		anchorName = anchorID
+	}
+	_, err := ui.db.Exec(`
+		INSERT INTO anchors (address truncated???)`*** End Patchी to=functions.ApplyPatch to=functions.ApplyPatch All sections triple-check copying? Patch truncated due to `address`? I must supply full snippet. Compose entire addition carefully. We'll insert new functions after `incrementAnchorScore` block, before `lookupGiftBinding`. We'll include `ensureGlobalAnchor`, `saveRoomAnchorFromForm`, `initializeRoomAnchors`, `bindGiftsToAnchor`. Use `apply_patch` to insert chunk. Let me craft manually with proper SQL (matching columns). Our `anchors` table has columns `anchor_id`, `anchor_name`, `bound_gifts`, `created_at`, `updated_at`. We'll insert providing `CURRENT_TIMESTAMP`. Use `INSERT ... ON CONFLICT` with `SET anchor_name=COALESCE(NULLIF(excluded.anchor_name,''), anchors.anchor_name), bound_gifts=COALESCE(NULLIF(excluded.bound_gifts,''), anchors.bound_gifts), updated_at=CURRENT_TIMESTAMP`. But we don't supply bound_gifts in this function (maybe ""), so we can just set to '', leaving existing. We'll set `excluded.bound_gifts` blank. Implementation: `_, err := ui.db.Exec(`INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(anchor_id) DO UPDATE SET anchor_name=CASE WHEN excluded.anchor_name<>'' THEN excluded.anchor_name ELSE anchors.anchor_name END, updated_at=CURRENT_TIMESTAMP`, anchorID, anchorName)`. That should compile even though we insert `bound_gifts` column. Need to ensure `anchors` table has `created_at` column? yes. So we need to specify all columns maybe? We'll set `INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(anchor_id) DO UPDATE SET anchor_name=excluded.anchor_name, bound_gifts=COALESCE(NULLIF(excluded.bound_gifts,''), anchors.bound_gifts), updated_at=CURRENT_TIMESTAMP`. But we always set `excluded.anchor_name` to maybe non-empty? we set to non-empty (since we ensure). Good. We'll set `bound_gifts` to '', but we don't want to override existing. In `ON CONFLICT`, we can avoid overriding by using `COALESCE(NULLIF(excluded.bound_gifts,''), room_...)? But we always insert '', so `excluded.bound_gifts` would be '', we don't want to set to ''. So we might just not set `bound_gifts` in update. Example: `ON CONFLICT DO UPDATE SET anchor_name=excluded.anchor_name, updated_at=CURRENT_TIMESTAMP`. That avoids messing with bound_gifts. Good. We'll do that. For insert we need to supply both `created_at` etc. We'll do `INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(anchor_id) DO UPDATE SET anchor_name=excluded.anchor_name, updated_at=CURRENT_TIMESTAMP`. Works though we might lose existing bound_gifts if we always insert '', but update part sets `anchor_name` to new value but not `bound_gifts`. So `bound_gifts` remains old value due to no update. Good. We'll do that. But we don't want to override `anchor_name` with empty string. We'll check: we set `anchorName = anchorID` if blank. So seldom blank. So fine. But to be safe, we can use `CASE WHEN excluded.anchor_name='' THEN anchors.anchor_name ELSE excluded.anchor_name END`. We'll do that to avoid blank overriding. That is better. We'll implement like so. We'll also ensure to Trim anchorName. `anchorName = strings.TrimSpace(anchorName)` after default. Good idea. We'll set `anchorName = strings.TrimSpace(anchorName)` and fallback to anchorID. All done. We'll also call `ui.ensureGlobalAnchor` from `saveRoomAnchorFromForm` etc. Good. Now patch addition. We'll use apply_patch to insert chunk after `incrementAnchorScore`. It's easier to replace entire portion starting at `func (ui *FyneUI) increment...` down to before `func (ui *FyneUI) lookup...` to include new functions. Instead of patch insertion, we can patch to add code after `increment...`. We'll use apply_patch to insert block after existing `incrementAnchorScore`. We'll add the new functions before `lookupGiftBinding`. We'll use patch with `@@` referencing location after `incrementAnchorScore`. We'll insert code block there. Let's do that carefully. We'll add the new functions `ensureGlobalAnchor`, `saveRoomAnchorFromForm`, `initializeRoomAnchors`, `bindGiftsToAnchor`. We'll need `roomTab` parameter where necessary. We'll use `strings` and `strconv` (already imported). We'll also need to use `fmt` etc already imported. We'll refer to `roomTab.AnchorStatus`. We'll convert numbers using `strconv.Atoi`. We'll use `strings.TrimSpace`. We'll need to handle errors and show message. Let's craft code carefully. We'll mention error message with `fmt.Sprintf`. We'll set status label text to e.g. `roomTab.AnchorStatus.SetText("...")`. We'll guard for nil `roomTab.AnchorStatus`. We'll refresh table after operations. We'll also call `ui.refreshRoomTables` to repopulate rows. We'll also call `ui.applyRoomFilter`? Not necessary. We'll also call `roomTab.AnchorTable.Refresh()` after `refreshRoomTables`. Already in `refreshRoomTables` we call `AnchorTable.Refresh` if not nil. So just call `ui.refreshRoomTables(roomTab)` and maybe update status? yes. We'll set status message accordingly. We'll also handle nil `ui.db`. We'll ensure we parse numbers with fallback 0. We'll use `parseInt` helper `toInt` but easier to use `toInt`. But we need `giftCount` from entry string; `toInt` handles strings (since we added). We'll use `count := toInt(strings.TrimSpace(roomTab.AnchorGiftCountEntry.Text))`. That uses our `toInt` but we added new cases? Already toInt handles string via fmt.Sscanf. Good. We'll use that. For `score` similarly. We'll use `strings.TrimSpace` to avoid spaces. We'll also ensure `roomTab.RoomID` not empty. We'll call `ui.updateOverviewStatus` maybe? Not necessary. We'll just set local status label. We'll also set `roomTab.AnchorIDEntry.SetText("")` etc after save? maybe not necessary. We'll just leave values for editing. But maybe better to leave as they were to show saved values. We'll leave as is; user can adjust. We'll set status to "保存成功" or error message. We'll use `if roomTab.AnchorStatus != nil { roomTab.AnchorStatus.SetText("...") }`. We'll use translation? We'll use Chinese as per rest? We have some Chinese text. We'll set e.g. "请填写主播ID". etc. We'll add bridging. After initialization, call `roomTab.AnchorStatus`. We'll also call `ui.updateOverviewStatus`? no need. We'll just set label. We'll ensure `initializeRoomAnchors` uses `saveRoomAnchor...`? We'll just do DB insert directly, not via form. We'll create default ID `roomTab.RoomID`. We'll call `ui.ensureGlobalAnchor`. We'll call `ui.refreshRoomTables`. We'll set status label. We'll consider case `roomTab.RoomName`. We'll use `roomTab.RoomID`. We'll use `fmt.Sprintf("%s_01", roomTab.RoomID)` for ID; for name use `roomTab.RoomName`. We'll also set `roomTab.AnchorStatus` message for success or failure. We'll ensure if there are existing anchors (len>1) we display message and return. All good. We'll also make `bindGifts` function to update `room_gift_bindings` and `room_anchors.bound_gifts`. We'll call from `saveRoomAnchor...` after upsert. We'll also call from `initialize`? maybe not necessary (since there may not be initial gifts). We'll pass empty string. Should handle gracefully. We'll call `ui.bindGiftsToAnchor(roomTab.RoomID, anchorID, gifts)` in `saveRoomAnchor...` after upsert. We'll also call after `initialize` with empty string? we can skip when `defaultGift := strings.TrimSpace(roomTab.RoomName)`? We'll call with `""`. The function will just return if no gifts. We'll also call `ui.ensureGlobalAnchor` there. Good. Add `strings` already imported. So these functions just use existing dependencies (no new imports). We'll need `strconv` for `Atoi`? We already added import, but if we don't use `strconv` after all? In planned code we use `strconv.Atoi`? we plan to use `toInt`. If we use `toInt` we don't need `strconv`. We added import though; if we don't use `strconv`, gofmt will remove? But not automatically. If we don't use `strconv`, go vet will error. So ensure we use `strconv`. Alternatively, use `strconv.Atoi` in the new functions. But we might prefer `toInt`. But to use `strconv`, we can use `strconv.Atoi`. Maybe we can use `strconv.Atoi` to parse entries. Use e.g. `count, _ := strconv.Atoi(strings.TrimSpace(roomTab.AnchorGiftCountEntry.Text))`. That ensures `strconv` used. We'll do that. We'll still have `toInt` for other uses. We'll use `strconv.Atoi` to parse user input. Good. Let's implement functions accordingly. We'll need to import `strconv` (already done). Great. Now insert functions after `incrementAnchorScore`. We'll patch accordingly. Use apply_patch with chunk that replaces portion after `increment...` up to before `lookupGiftBinding`. We'll patch accordingly. We'll craft patch text carefully. We'll include new functions and leave existing `lookup` etc afterwards. We'll ensure we don't accidentally remove `lookup` definitions. We'll write patch as "replace" block. We'll paste new code and include original `lookup...` after our new functions. We'll use patch snippet with `@@` referencing location. Something like `@@ func (ui *FyneUI) increment... { ... }` etc. We'll include new functions afterwards. Let's craft patch snippet. We'll copy the existing `lookup` function to include after our new functions (to ensure patch matches). We'll restructure as patch by specifying original part to replace. We'll copy snippet from original file around `increment...` to `lookup` and replace with new code. We'll do patch as: we need to include original lines to match. We'll take current code from near earlier and rewrite. We'll produce patch using `apply_patch` with context. We'll include entire block from `func (ui *FyneUI) increment...` through `func (ui *FyneUI) lookup...`. We'll replace with new block containing our modifications. Let's construct old snippet to match actual text. From file (extract). We'll copy from earlier snippet lines 1285 etc to 1327 etc. We'll produce patch. Need to ensure contexts match exactly. I'll copy original portion from file: Starting from `func (ui *FyneUI) ensureRoomAnchorRecord ...` etc? Wait we already looked at part around 1285 etc. For patch, we can specify from `func (ui *FyneUI) ensureRoomAnchorRecord`? But we only need to insert functions after `increment`. Could easier to use patch to insert using `@@` with zero-length? e.g., `@@` after `increment...` closing brace. We'll insert new code using `@@` addition. We'll not replace existing code. We'll add our functions between `increment` and `lookup`. We'll use patch with context after `func (ui *FyneUI) increment...` block. We'll do patch like: `@@ func (ui *FyneUI) increment... { ... }` and then add new code before next function. We'll use `+` lines for new functions. We'll need to know next line to anchor patch. After `increment` function, next line is blank, then `func (ui *FyneUI) lookup...`. We'll insert our new functions there. We'll patch as: `@@` starting with lines after `return` block. We'll insert new functions followed by existing `func (ui *FyneUI) lookup...`. But we don't need to include entire existing function; we just add lines before it. We'll use patch with h chunk like: `@@ func (ui *FyneUI) increment... }` etc. We'll append new code before existing `func (ui *FyneUI) lookup...`. We'll craft patch as (pseudocode). We'll write patch snippet with context lines to ensure proper location. Example patch snippet: `@@` (with context). We'll specify lines: after `}` of `increment` we add new code. We'll include context lines `}` and `func (ui *FyneUI) lookup...`. We'll patch by replacing that portion with new code plus existing `func (ui *FyneUI) lookup...`. Implementation patch sample: 
 
 func (ui *FyneUI) initRoomGiftTable(roomTab *RoomTab) {
 	roomTab.GiftRows = ui.loadRoomGiftRows(roomTab.RoomID)
