@@ -1744,7 +1744,8 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		}
 	}
 
-	initBtn := widget.NewButton("初始化主播", func() {
+	var initBtn *widget.Button
+	initBtn = widget.NewButton("初始化主播", func() {
 		ui.initializeRoomAnchors(roomTab)
 		ui.refreshRoomTables(roomTab)
 		updateInitBtnState(initBtn)
