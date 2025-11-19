@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/flopp/go-findfont"
+	"github.com/xuri/excelize/v2"
 
 	"dy-live-monitor/internal/config"
 	"dy-live-monitor/internal/database"
@@ -70,29 +72,30 @@ type MessagePair struct {
 
 // RoomTab 房间Tab数据
 type RoomTab struct {
-	RoomID        string
-	RoomName      string
-	Tab           *container.TabItem
-	MessagesList  *widget.List
-	MessagePairs  []*MessagePair
-	FilteredPairs []*MessagePair
-	StatsLabel    *widget.Label
-	DetailWindow  fyne.Window // 详情窗口
-	MessageFilter string
-	FilterSelect  *widget.Select
-	SubTabs       *container.AppTabs
-	GiftTable     *widget.Table
-	AnchorTable   *widget.Table
-	SegmentTable  *widget.Table
-	GiftRows      [][]string
-	AnchorRows    [][]string
-	SegmentRows   [][]string
-	AnchorIDEntry       *widget.Entry
-	AnchorNameEntry     *widget.Entry
-	AnchorGiftsEntry    *widget.Entry
+	RoomID               string
+	RoomName             string
+	Tab                  *container.TabItem
+	MessagesList         *widget.List
+	MessagePairs         []*MessagePair
+	FilteredPairs        []*MessagePair
+	StatsLabel           *widget.Label
+	DetailWindow         fyne.Window // 详情窗口
+	MessageFilter        string
+	TotalMessages        int
+	FilterSelect         *widget.Select
+	SubTabs              *container.AppTabs
+	GiftTable            *widget.Table
+	AnchorTable          *widget.Table
+	SegmentTable         *widget.Table
+	GiftRows             [][]string
+	AnchorRows           [][]string
+	SegmentRows          [][]string
+	AnchorIDEntry        *widget.Entry
+	AnchorNameEntry      *widget.Entry
+	AnchorGiftsEntry     *widget.Entry
 	AnchorGiftCountEntry *widget.Entry
-	AnchorScoreEntry    *widget.Entry
-	AnchorStatus        *widget.Label
+	AnchorScoreEntry     *widget.Entry
+	AnchorStatus         *widget.Label
 }
 
 // FyneUI Fyne 图形界面
@@ -758,11 +761,16 @@ func (ui *FyneUI) openHistoricalRoomTab(roomID string) {
 
 	historyPairs := ui.loadHistoricalMessages(roomID)
 	roomTab.MessagePairs = historyPairs
+	roomTab.TotalMessages = ui.fetchRoomMessageCount(roomID)
+	if roomTab.TotalMessages == 0 {
+		roomTab.TotalMessages = len(roomTab.MessagePairs)
+	}
 	ui.applyRoomFilter(roomTab)
 	ui.refreshRoomTables(roomTab)
 	if roomTab.MessagesList != nil {
 		roomTab.MessagesList.Refresh()
 	}
+	ui.updateRoomStats(roomTab)
 }
 
 func (ui *FyneUI) loadHistoricalMessages(roomID string) []*MessagePair {
@@ -798,8 +806,13 @@ func (ui *FyneUI) loadHistoricalMessages(roomID string) []*MessagePair {
 			},
 		}
 		result = append(result, &MessagePair{
-			Parsed:    parsed,
-			Display:   display,
+			Parsed: parsed,
+			Display: ui.decorateMessageDisplay(&MessagePair{
+				Parsed:    parsed,
+				Display:   display,
+				Detail:    parsed.Detail,
+				Timestamp: ts,
+			}),
 			Detail:    parsed.Detail,
 			Timestamp: ts,
 			Source:    "history",
@@ -808,50 +821,96 @@ func (ui *FyneUI) loadHistoricalMessages(roomID string) []*MessagePair {
 	return result
 }
 
+func normalizeRoomID(roomID string) string {
+	if idx := strings.Index(roomID, "#"); idx >= 0 {
+		return roomID[:idx]
+	}
+	return roomID
+}
+
+func (ui *FyneUI) fetchRoomMessageCount(roomID string) int {
+	if ui.db == nil || roomID == "" {
+		return 0
+	}
+	tableName := database.RoomMessageTableName(normalizeRoomID(roomID))
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM %s`, tableName)
+	var total int
+	if err := ui.db.QueryRow(query).Scan(&total); err != nil {
+		return 0
+	}
+	return total
+}
+
 func (ui *FyneUI) exportRoomGifts(roomID string) (string, error) {
 	if ui.db == nil || roomID == "" {
 		return "", fmt.Errorf("缺少房间号")
 	}
-	path := filepath.Join("exports", fmt.Sprintf("room_%s_gifts.csv", roomID))
 	if err := os.MkdirAll("exports", 0755); err != nil {
 		return "", err
 	}
 
-	file, err := os.Create(path)
-	if err != nil {
-		return "", err
-	}
+	path := filepath.Join("exports", fmt.Sprintf("room_%s_gifts.xlsx", roomID))
+	file := excelize.NewFile()
 	defer file.Close()
 
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
+	const sheet = "礼物记录"
+	file.SetSheetName("Sheet1", sheet)
+	headers := []string{"时间", "礼物名称", "礼物数量", "送礼人", "钻石", "接收主播"}
+	for idx, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(idx+1, 1)
+		file.SetCellValue(sheet, cell, header)
+	}
 
-	writer.Write([]string{"时间", "礼物", "数量", "钻石", "主播", "送礼人"})
 	rows, err := ui.db.Query(`
-		SELECT timestamp, gift_name, gift_count, gift_diamond_value, anchor_id, user_nickname
-		FROM gift_records WHERE room_id = ? ORDER BY timestamp ASC
+		SELECT gr.timestamp, gr.gift_name, gr.gift_count, gr.user_nickname,
+		       gr.gift_diamond_value, COALESCE(a.anchor_name, gr.anchor_id) AS receiver
+		FROM gift_records gr
+		LEFT JOIN anchors a ON gr.anchor_id = a.anchor_id
+		WHERE gr.room_id = ?
+		ORDER BY gr.timestamp ASC
 	`, roomID)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
 
+	rowIdx := 2
 	for rows.Next() {
 		var ts time.Time
-		var gift, anchor, user string
+		var giftName, user, receiver sql.NullString
 		var count, diamond int
-		if err := rows.Scan(&ts, &gift, &count, &diamond, &anchor, &user); err != nil {
+		if err := rows.Scan(&ts, &giftName, &count, &user, &diamond, &receiver); err != nil {
 			continue
 		}
-		writer.Write([]string{
-			ts.Format(time.RFC3339),
-			gift,
-			fmt.Sprintf("%d", count),
-			fmt.Sprintf("%d", diamond),
-			anchor,
-			user,
-		})
+		totalDiamond := diamond * count
+		if totalDiamond == 0 {
+			totalDiamond = diamond
+		}
+		values := []interface{}{
+			ts.Format("2006-01-02 15:04:05"),
+			giftName.String,
+			count,
+			user.String,
+			totalDiamond,
+			strings.TrimSpace(receiver.String),
+		}
+		for colIdx, value := range values {
+			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowIdx)
+			file.SetCellValue(sheet, cell, value)
+		}
+		rowIdx++
 	}
+
+	if err := file.SetColWidth(sheet, "A", "A", 20); err != nil {
+		return "", err
+	}
+	if err := file.SetColWidth(sheet, "B", "F", 18); err != nil {
+		return "", err
+	}
+	if err := file.SaveAs(path); err != nil {
+		return "", err
+	}
+
 	return path, nil
 }
 
@@ -1047,6 +1106,25 @@ func (ui *FyneUI) closeRoom(roomID string) {
 	ui.updateOverviewStatus(fmt.Sprintf("状态: 房间 %s 已关闭", roomID))
 }
 
+func (ui *FyneUI) updateRoomStats(roomTab *RoomTab) {
+	if roomTab == nil || roomTab.StatsLabel == nil {
+		return
+	}
+	displayed := len(roomTab.MessagePairs)
+	if displayed > roomTab.TotalMessages {
+		roomTab.TotalMessages = displayed
+	}
+	total := roomTab.TotalMessages
+	if total == 0 {
+		total = displayed
+	}
+	extra := ""
+	if total > displayed {
+		extra = fmt.Sprintf(" (展示 %d 条)", displayed)
+	}
+	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 消息: %d 条%s", roomTab.RoomID, total, extra))
+}
+
 // AddOrUpdateRoom 添加或更新房间Tab
 func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	if _, exists := ui.roomTabs[roomID]; exists {
@@ -1065,6 +1143,8 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	}
 
 	roomTab.StatsLabel = widget.NewLabel(fmt.Sprintf("房间: %s | 消息: 0 条", roomID))
+	roomTab.TotalMessages = ui.fetchRoomMessageCount(roomID)
+	ui.updateRoomStats(roomTab)
 
 	roomTab.FilterSelect = widget.NewSelect([]string{"全部", "聊天消息", "礼物消息", "点赞消息", "进场消息", "关注消息"}, func(val string) {
 		roomTab.MessageFilter = val
@@ -1192,6 +1272,64 @@ func (ui *FyneUI) AddParsedMessageWithDetail(roomID string, message string, deta
 	ui.recordParsedMessage(roomID, parsed, false)
 }
 
+func formatDisplayWithTimestamp(ts time.Time, original string) string {
+	if ts.IsZero() {
+		return original
+	}
+
+	clean := original
+	if strings.HasPrefix(clean, "[") {
+		if idx := strings.Index(clean, "]"); idx > 0 && idx+2 <= len(clean) {
+			candidate := clean[1:idx]
+			if len(candidate) == len("15:04:05") {
+				if _, err := time.Parse("15:04:05", candidate); err == nil {
+					clean = strings.TrimSpace(clean[idx+1:])
+				}
+			} else if len(candidate) == len("01-02 15:04:05") {
+				if _, err := time.Parse("01-02 15:04:05", candidate); err == nil {
+					clean = strings.TrimSpace(clean[idx+1:])
+				}
+			}
+		}
+	}
+
+	return fmt.Sprintf("[%s] %s", ts.Format("01-02 15:04:05"), clean)
+}
+
+func (ui *FyneUI) decorateMessageDisplay(pair *MessagePair) string {
+	if pair == nil {
+		return ""
+	}
+	if pair.Detail == nil {
+		pair.Detail = make(map[string]interface{})
+	}
+
+	display := formatDisplayWithTimestamp(pair.Timestamp, pair.Display)
+
+	if mt, ok := pair.Detail["messageType"].(string); ok && mt == "礼物消息" {
+		group := toInt(pair.Detail["groupCount"])
+		if group == 0 {
+			group = toInt(pair.Detail["giftCount"])
+		}
+		if group == 0 {
+			group = 1
+		}
+		diamond := toInt(pair.Detail["diamondCount"])
+		total := diamond * group
+		if total == 0 {
+			total = toInt(pair.Detail["diamondTotal"])
+		}
+		if total > 0 {
+			pair.Detail["diamondTotal"] = total
+			if !strings.Contains(display, "💎") {
+				display = fmt.Sprintf("%s | 💎%d", display, total)
+			}
+		}
+	}
+
+	return display
+}
+
 func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoMessage, persist bool) {
 	if parsed == nil {
 		return
@@ -1204,10 +1342,13 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 		parsed.Detail = make(map[string]interface{})
 	}
 	parsed.Detail["timestamp"] = parsed.ReceivedAt.Format(time.RFC3339)
-	displayText := parsed.Display
-	if !parsed.ReceivedAt.IsZero() {
-		displayText = fmt.Sprintf("[%s] %s", parsed.ReceivedAt.Format("15:04:05"), parsed.Display)
+	tempPair := &MessagePair{
+		Parsed:    parsed,
+		Display:   parsed.Display,
+		Detail:    parsed.Detail,
+		Timestamp: parsed.ReceivedAt,
 	}
+	displayText := ui.decorateMessageDisplay(tempPair)
 
 	ui.AddOrUpdateRoom(roomID)
 	roomTab := ui.roomTabs[roomID]
@@ -1238,7 +1379,8 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 		roomTab.MessagesList.Refresh()
 		roomTab.MessagesList.ScrollToTop()
 	}
-	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 消息: %d 条", roomID, len(roomTab.MessagePairs)))
+	roomTab.TotalMessages++
+	ui.updateRoomStats(roomTab)
 
 	if persist && ui.wsServer != nil {
 		source := pair.Source
@@ -1259,6 +1401,9 @@ func (ui *FyneUI) applyRoomFilter(roomTab *RoomTab) {
 	}
 	if filter == "全部" {
 		roomTab.FilteredPairs = append([]*MessagePair(nil), roomTab.MessagePairs...)
+		sort.SliceStable(roomTab.FilteredPairs, func(i, j int) bool {
+			return roomTab.FilteredPairs[i].Timestamp.After(roomTab.FilteredPairs[j].Timestamp)
+		})
 		return
 	}
 
@@ -1268,6 +1413,9 @@ func (ui *FyneUI) applyRoomFilter(roomTab *RoomTab) {
 			filtered = append(filtered, pair)
 		}
 	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return filtered[i].Timestamp.After(filtered[j].Timestamp)
+	})
 	roomTab.FilteredPairs = filtered
 }
 
@@ -1331,6 +1479,138 @@ func (ui *FyneUI) incrementAnchorScore(roomID, anchorID string, giftCount, diamo
 	}
 }
 
+func (ui *FyneUI) ensureGlobalAnchor(anchorID, anchorName string) {
+	if ui.db == nil || anchorID == "" {
+		return
+	}
+	anchorName = strings.TrimSpace(anchorName)
+	if anchorName == "" {
+		anchorName = anchorID
+	}
+
+	_, err := ui.db.Exec(`
+		INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at)
+		VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(anchor_id)
+		DO UPDATE SET anchor_name=CASE WHEN excluded.anchor_name = '' THEN anchors.anchor_name ELSE excluded.anchor_name END,
+		          updated_at=CURRENT_TIMESTAMP
+	`, anchorID, anchorName)
+	if err != nil {
+		log.Printf("⚠️  同步全局主播失败: %v", err)
+	}
+}
+
+func (ui *FyneUI) saveRoomAnchorFromForm(roomTab *RoomTab) {
+	if roomTab == nil || ui.db == nil {
+		return
+	}
+
+	updateStatus := func(text string) {
+		if roomTab.AnchorStatus != nil {
+			roomTab.AnchorStatus.SetText(text)
+		}
+	}
+
+	anchorID := strings.TrimSpace(roomTab.AnchorIDEntry.Text)
+	anchorName := strings.TrimSpace(roomTab.AnchorNameEntry.Text)
+	gifts := strings.TrimSpace(roomTab.AnchorGiftsEntry.Text)
+	giftCount, _ := strconv.Atoi(strings.TrimSpace(roomTab.AnchorGiftCountEntry.Text))
+	score, _ := strconv.Atoi(strings.TrimSpace(roomTab.AnchorScoreEntry.Text))
+
+	if anchorID == "" || anchorName == "" {
+		updateStatus("⚠️ 请填写主播ID和名称")
+		return
+	}
+
+	tx, err := ui.db.Begin()
+	if err != nil {
+		updateStatus(fmt.Sprintf("⚠️ 数据库错误: %v", err))
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO room_anchors (room_id, anchor_id, anchor_name, bound_gifts, gift_count, score)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(room_id, anchor_id)
+		DO UPDATE SET anchor_name=excluded.anchor_name,
+		             bound_gifts=excluded.bound_gifts,
+		             gift_count=excluded.gift_count,
+		             score=excluded.score
+	`, roomTab.RoomID, anchorID, anchorName, gifts, giftCount, score)
+	if err != nil {
+		updateStatus(fmt.Sprintf("⚠️ 保存失败: %v", err))
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		updateStatus(fmt.Sprintf("⚠️ 保存失败: %v", err))
+		return
+	}
+
+	ui.ensureGlobalAnchor(anchorID, anchorName)
+	ui.bindGiftsToAnchor(roomTab.RoomID, anchorID, gifts)
+	ui.refreshRoomTables(roomTab)
+	updateStatus("✅ 主播信息已保存")
+}
+
+func (ui *FyneUI) initializeRoomAnchors(roomTab *RoomTab) {
+	if roomTab == nil || ui.db == nil {
+		return
+	}
+
+	updateStatus := func(text string) {
+		if roomTab.AnchorStatus != nil {
+			roomTab.AnchorStatus.SetText(text)
+		}
+	}
+
+	defaultID := fmt.Sprintf("%s_anchor", roomTab.RoomID)
+	defaultName := roomTab.RoomName
+	if strings.TrimSpace(defaultName) == "" {
+		defaultName = defaultID
+	}
+
+	_, err := ui.db.Exec(`
+		INSERT INTO room_anchors (room_id, anchor_id, anchor_name, bound_gifts, gift_count, score)
+		VALUES (?, ?, ?, '', 0, 0)
+		ON CONFLICT(room_id, anchor_id) DO NOTHING
+	`, roomTab.RoomID, defaultID, defaultName)
+	if err != nil {
+		updateStatus(fmt.Sprintf("⚠️ 初始化失败: %v", err))
+		return
+	}
+
+	ui.ensureGlobalAnchor(defaultID, defaultName)
+	ui.refreshRoomTables(roomTab)
+	updateStatus("✅ 已添加默认主播，可继续编辑")
+}
+
+func (ui *FyneUI) bindGiftsToAnchor(roomID, anchorID, gifts string) {
+	if ui.db == nil || roomID == "" || anchorID == "" || strings.TrimSpace(gifts) == "" {
+		return
+	}
+
+	giftList := strings.Split(gifts, ",")
+	for _, name := range giftList {
+		giftName := strings.TrimSpace(name)
+		if giftName == "" {
+			continue
+		}
+		if _, err := ui.db.Exec(`
+			INSERT INTO room_gift_bindings (room_id, gift_name, anchor_id)
+			VALUES (?, ?, ?)
+			ON CONFLICT(room_id, gift_name) DO UPDATE SET anchor_id=excluded.anchor_id
+		`, roomID, giftName, anchorID); err != nil {
+			log.Printf("⚠️  绑定礼物 %s 到主播 %s 失败: %v", giftName, anchorID, err)
+			continue
+		}
+		anchorName := ui.lookupAnchorName(anchorID)
+		ui.ensureGlobalAnchor(anchorID, anchorName)
+		ui.ensureRoomAnchorRecord(roomID, anchorID, anchorName)
+	}
+}
+
 func (ui *FyneUI) lookupGiftBinding(roomID, giftName string) (string, string) {
 	if ui.db == nil {
 		return "", ""
@@ -1349,6 +1629,21 @@ func (ui *FyneUI) lookupGiftBinding(roomID, giftName string) (string, string) {
 	return anchorID, anchorName
 }
 
+func (ui *FyneUI) lookupAnchorName(anchorID string) string {
+	if ui.db == nil || anchorID == "" {
+		return anchorID
+	}
+	var anchorName string
+	if err := ui.db.QueryRow(`SELECT anchor_name FROM anchors WHERE anchor_id = ?`, anchorID).Scan(&anchorName); err != nil {
+		return anchorID
+	}
+	anchorName = strings.TrimSpace(anchorName)
+	if anchorName == "" {
+		return anchorID
+	}
+	return anchorName
+}
+
 func (ui *FyneUI) refreshRoomTables(roomTab *RoomTab) {
 	roomTab.GiftRows = ui.loadRoomGiftRows(roomTab.RoomID)
 	roomTab.AnchorRows = ui.loadRoomAnchorRows(roomTab.RoomID)
@@ -1364,16 +1659,6 @@ func (ui *FyneUI) refreshRoomTables(roomTab *RoomTab) {
 		roomTab.SegmentTable.Refresh()
 	}
 }
-
-func (ui *FyneUI) ensureGlobalAnchor(anchorID, anchorName string) {
-	if ui.db == nil || anchorID == "" {
-		return
-	}
-	if strings.TrimSpace(anchorName) == "" {
-		anchorName = anchorID
-	}
-	_, err := ui.db.Exec(`
-		INSERT INTO anchors (address truncated???)`*** End Patchी to=functions.ApplyPatch to=functions.ApplyPatch All sections triple-check copying? Patch truncated due to `address`? I must supply full snippet. Compose entire addition carefully. We'll insert new functions after `incrementAnchorScore` block, before `lookupGiftBinding`. We'll include `ensureGlobalAnchor`, `saveRoomAnchorFromForm`, `initializeRoomAnchors`, `bindGiftsToAnchor`. Use `apply_patch` to insert chunk. Let me craft manually with proper SQL (matching columns). Our `anchors` table has columns `anchor_id`, `anchor_name`, `bound_gifts`, `created_at`, `updated_at`. We'll insert providing `CURRENT_TIMESTAMP`. Use `INSERT ... ON CONFLICT` with `SET anchor_name=COALESCE(NULLIF(excluded.anchor_name,''), anchors.anchor_name), bound_gifts=COALESCE(NULLIF(excluded.bound_gifts,''), anchors.bound_gifts), updated_at=CURRENT_TIMESTAMP`. But we don't supply bound_gifts in this function (maybe ""), so we can just set to '', leaving existing. We'll set `excluded.bound_gifts` blank. Implementation: `_, err := ui.db.Exec(`INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(anchor_id) DO UPDATE SET anchor_name=CASE WHEN excluded.anchor_name<>'' THEN excluded.anchor_name ELSE anchors.anchor_name END, updated_at=CURRENT_TIMESTAMP`, anchorID, anchorName)`. That should compile even though we insert `bound_gifts` column. Need to ensure `anchors` table has `created_at` column? yes. So we need to specify all columns maybe? We'll set `INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(anchor_id) DO UPDATE SET anchor_name=excluded.anchor_name, bound_gifts=COALESCE(NULLIF(excluded.bound_gifts,''), anchors.bound_gifts), updated_at=CURRENT_TIMESTAMP`. But we always set `excluded.anchor_name` to maybe non-empty? we set to non-empty (since we ensure). Good. We'll set `bound_gifts` to '', but we don't want to override existing. In `ON CONFLICT`, we can avoid overriding by using `COALESCE(NULLIF(excluded.bound_gifts,''), room_...)? But we always insert '', so `excluded.bound_gifts` would be '', we don't want to set to ''. So we might just not set `bound_gifts` in update. Example: `ON CONFLICT DO UPDATE SET anchor_name=excluded.anchor_name, updated_at=CURRENT_TIMESTAMP`. That avoids messing with bound_gifts. Good. We'll do that. For insert we need to supply both `created_at` etc. We'll do `INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at) VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(anchor_id) DO UPDATE SET anchor_name=excluded.anchor_name, updated_at=CURRENT_TIMESTAMP`. Works though we might lose existing bound_gifts if we always insert '', but update part sets `anchor_name` to new value but not `bound_gifts`. So `bound_gifts` remains old value due to no update. Good. We'll do that. But we don't want to override `anchor_name` with empty string. We'll check: we set `anchorName = anchorID` if blank. So seldom blank. So fine. But to be safe, we can use `CASE WHEN excluded.anchor_name='' THEN anchors.anchor_name ELSE excluded.anchor_name END`. We'll do that to avoid blank overriding. That is better. We'll implement like so. We'll also ensure to Trim anchorName. `anchorName = strings.TrimSpace(anchorName)` after default. Good idea. We'll set `anchorName = strings.TrimSpace(anchorName)` and fallback to anchorID. All done. We'll also call `ui.ensureGlobalAnchor` from `saveRoomAnchorFromForm` etc. Good. Now patch addition. We'll use apply_patch to insert chunk after `incrementAnchorScore`. It's easier to replace entire portion starting at `func (ui *FyneUI) increment...` down to before `func (ui *FyneUI) lookup...` to include new functions. Instead of patch insertion, we can patch to add code after `increment...`. We'll use apply_patch to insert block after existing `incrementAnchorScore`. We'll add the new functions before `lookupGiftBinding`. We'll use patch with `@@` referencing location after `incrementAnchorScore`. We'll insert code block there. Let's do that carefully. We'll add the new functions `ensureGlobalAnchor`, `saveRoomAnchorFromForm`, `initializeRoomAnchors`, `bindGiftsToAnchor`. We'll need `roomTab` parameter where necessary. We'll use `strings` and `strconv` (already imported). We'll also need to use `fmt` etc already imported. We'll refer to `roomTab.AnchorStatus`. We'll convert numbers using `strconv.Atoi`. We'll use `strings.TrimSpace`. We'll need to handle errors and show message. Let's craft code carefully. We'll mention error message with `fmt.Sprintf`. We'll set status label text to e.g. `roomTab.AnchorStatus.SetText("...")`. We'll guard for nil `roomTab.AnchorStatus`. We'll refresh table after operations. We'll also call `ui.refreshRoomTables` to repopulate rows. We'll also call `ui.applyRoomFilter`? Not necessary. We'll also call `roomTab.AnchorTable.Refresh()` after `refreshRoomTables`. Already in `refreshRoomTables` we call `AnchorTable.Refresh` if not nil. So just call `ui.refreshRoomTables(roomTab)` and maybe update status? yes. We'll set status message accordingly. We'll also handle nil `ui.db`. We'll ensure we parse numbers with fallback 0. We'll use `parseInt` helper `toInt` but easier to use `toInt`. But we need `giftCount` from entry string; `toInt` handles strings (since we added). We'll use `count := toInt(strings.TrimSpace(roomTab.AnchorGiftCountEntry.Text))`. That uses our `toInt` but we added new cases? Already toInt handles string via fmt.Sscanf. Good. We'll use that. For `score` similarly. We'll use `strings.TrimSpace` to avoid spaces. We'll also ensure `roomTab.RoomID` not empty. We'll call `ui.updateOverviewStatus` maybe? Not necessary. We'll just set local status label. We'll also set `roomTab.AnchorIDEntry.SetText("")` etc after save? maybe not necessary. We'll just leave values for editing. But maybe better to leave as they were to show saved values. We'll leave as is; user can adjust. We'll set status to "保存成功" or error message. We'll use `if roomTab.AnchorStatus != nil { roomTab.AnchorStatus.SetText("...") }`. We'll use translation? We'll use Chinese as per rest? We have some Chinese text. We'll set e.g. "请填写主播ID". etc. We'll add bridging. After initialization, call `roomTab.AnchorStatus`. We'll also call `ui.updateOverviewStatus`? no need. We'll just set label. We'll ensure `initializeRoomAnchors` uses `saveRoomAnchor...`? We'll just do DB insert directly, not via form. We'll create default ID `roomTab.RoomID`. We'll call `ui.ensureGlobalAnchor`. We'll call `ui.refreshRoomTables`. We'll set status label. We'll consider case `roomTab.RoomName`. We'll use `roomTab.RoomID`. We'll use `fmt.Sprintf("%s_01", roomTab.RoomID)` for ID; for name use `roomTab.RoomName`. We'll also set `roomTab.AnchorStatus` message for success or failure. We'll ensure if there are existing anchors (len>1) we display message and return. All good. We'll also make `bindGifts` function to update `room_gift_bindings` and `room_anchors.bound_gifts`. We'll call from `saveRoomAnchor...` after upsert. We'll also call from `initialize`? maybe not necessary (since there may not be initial gifts). We'll pass empty string. Should handle gracefully. We'll call `ui.bindGiftsToAnchor(roomTab.RoomID, anchorID, gifts)` in `saveRoomAnchor...` after upsert. We'll also call after `initialize` with empty string? we can skip when `defaultGift := strings.TrimSpace(roomTab.RoomName)`? We'll call with `""`. The function will just return if no gifts. We'll also call `ui.ensureGlobalAnchor` there. Good. Add `strings` already imported. So these functions just use existing dependencies (no new imports). We'll need `strconv` for `Atoi`? We already added import, but if we don't use `strconv` after all? In planned code we use `strconv.Atoi`? we plan to use `toInt`. If we use `toInt` we don't need `strconv`. We added import though; if we don't use `strconv`, gofmt will remove? But not automatically. If we don't use `strconv`, go vet will error. So ensure we use `strconv`. Alternatively, use `strconv.Atoi` in the new functions. But we might prefer `toInt`. But to use `strconv`, we can use `strconv.Atoi`. Maybe we can use `strconv.Atoi` to parse entries. Use e.g. `count, _ := strconv.Atoi(strings.TrimSpace(roomTab.AnchorGiftCountEntry.Text))`. That ensures `strconv` used. We'll do that. We'll still have `toInt` for other uses. We'll use `strconv.Atoi` to parse user input. Good. Let's implement functions accordingly. We'll need to import `strconv` (already done). Great. Now insert functions after `incrementAnchorScore`. We'll patch accordingly. Use apply_patch with chunk that replaces portion after `increment...` up to before `lookupGiftBinding`. We'll patch accordingly. We'll craft patch text carefully. We'll include new functions and leave existing `lookup` etc afterwards. We'll ensure we don't accidentally remove `lookup` definitions. We'll write patch as "replace" block. We'll paste new code and include original `lookup...` after our new functions. We'll use patch snippet with `@@` referencing location. Something like `@@ func (ui *FyneUI) increment... { ... }` etc. We'll include new functions afterwards. Let's craft patch snippet. We'll copy the existing `lookup` function to include after our new functions (to ensure patch matches). We'll restructure as patch by specifying original part to replace. We'll copy snippet from original file around `increment...` to `lookup` and replace with new code. We'll do patch as: we need to include original lines to match. We'll take current code from near earlier and rewrite. We'll produce patch using `apply_patch` with context. We'll include entire block from `func (ui *FyneUI) increment...` through `func (ui *FyneUI) lookup...`. We'll replace with new block containing our modifications. Let's construct old snippet to match actual text. From file (extract). We'll copy from earlier snippet lines 1285 etc to 1327 etc. We'll produce patch. Need to ensure contexts match exactly. I'll copy original portion from file: Starting from `func (ui *FyneUI) ensureRoomAnchorRecord ...` etc? Wait we already looked at part around 1285 etc. For patch, we can specify from `func (ui *FyneUI) ensureRoomAnchorRecord`? But we only need to insert functions after `increment`. Could easier to use patch to insert using `@@` with zero-length? e.g., `@@` after `increment...` closing brace. We'll insert new code using `@@` addition. We'll not replace existing code. We'll add our functions between `increment` and `lookup`. We'll use patch with context after `func (ui *FyneUI) increment...` block. We'll do patch like: `@@ func (ui *FyneUI) increment... { ... }` and then add new code before next function. We'll use `+` lines for new functions. We'll need to know next line to anchor patch. After `increment` function, next line is blank, then `func (ui *FyneUI) lookup...`. We'll insert our new functions there. We'll patch as: `@@` starting with lines after `return` block. We'll insert new functions followed by existing `func (ui *FyneUI) lookup...`. But we don't need to include entire existing function; we just add lines before it. We'll use patch with h chunk like: `@@ func (ui *FyneUI) increment... }` etc. We'll append new code before existing `func (ui *FyneUI) lookup...`. We'll craft patch as (pseudocode). We'll write patch snippet with context lines to ensure proper location. Example patch snippet: `@@` (with context). We'll specify lines: after `}` of `increment` we add new code. We'll include context lines `}` and `func (ui *FyneUI) lookup...`. We'll patch by replacing that portion with new code plus existing `func (ui *FyneUI) lookup...`. Implementation patch sample: 
 
 func (ui *FyneUI) initRoomGiftTable(roomTab *RoomTab) {
 	roomTab.GiftRows = ui.loadRoomGiftRows(roomTab.RoomID)
@@ -1402,8 +1687,9 @@ func (ui *FyneUI) initRoomGiftTable(roomTab *RoomTab) {
 	roomTab.GiftTable = table
 }
 
-func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) {
+func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 	roomTab.AnchorRows = ui.loadRoomAnchorRows(roomTab.RoomID)
+
 	table := widget.NewTable(
 		func() (int, int) {
 			if len(roomTab.AnchorRows) == 0 {
@@ -1426,6 +1712,93 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) {
 	table.SetColumnWidth(3, 100)
 	table.SetColumnWidth(4, 100)
 	roomTab.AnchorTable = table
+
+	idEntry := widget.NewEntry()
+	idEntry.SetPlaceHolder("主播ID")
+	nameEntry := widget.NewEntry()
+	nameEntry.SetPlaceHolder("主播名称")
+	giftsEntry := widget.NewMultiLineEntry()
+	giftsEntry.SetPlaceHolder("绑定礼物（逗号分隔）")
+	giftsEntry.SetMinRowsVisible(2)
+	giftCountEntry := widget.NewEntry()
+	giftCountEntry.SetPlaceHolder("礼物数量")
+	scoreEntry := widget.NewEntry()
+	scoreEntry.SetPlaceHolder("钻石总值")
+	statusLabel := widget.NewLabel("")
+
+	roomTab.AnchorIDEntry = idEntry
+	roomTab.AnchorNameEntry = nameEntry
+	roomTab.AnchorGiftsEntry = giftsEntry
+	roomTab.AnchorGiftCountEntry = giftCountEntry
+	roomTab.AnchorScoreEntry = scoreEntry
+	roomTab.AnchorStatus = statusLabel
+
+	updateInitBtnState := func(btn *widget.Button) {
+		if btn == nil {
+			return
+		}
+		if len(roomTab.AnchorRows) <= 1 {
+			btn.Enable()
+		} else {
+			btn.Disable()
+		}
+	}
+
+	initBtn := widget.NewButton("初始化主播", func() {
+		ui.initializeRoomAnchors(roomTab)
+		ui.refreshRoomTables(roomTab)
+		updateInitBtnState(initBtn)
+	})
+	updateInitBtnState(initBtn)
+
+	saveBtn := widget.NewButton("保存/更新", func() {
+		ui.saveRoomAnchorFromForm(roomTab)
+		ui.refreshRoomTables(roomTab)
+		updateInitBtnState(initBtn)
+	})
+
+	refreshBtn := widget.NewButton("刷新", func() {
+		ui.refreshRoomTables(roomTab)
+		updateInitBtnState(initBtn)
+	})
+
+	table.OnSelected = func(id widget.TableCellID) {
+		if id.Row <= 0 || id.Row >= len(roomTab.AnchorRows) {
+			return
+		}
+		row := roomTab.AnchorRows[id.Row]
+		if len(row) >= 5 {
+			idEntry.SetText(row[0])
+			nameEntry.SetText(row[1])
+			giftsEntry.SetText(row[2])
+			giftCountEntry.SetText(row[3])
+			scoreEntry.SetText(row[4])
+		}
+	}
+
+	form := container.NewVBox(
+		widget.NewLabel("主播信息"),
+		widget.NewLabel("主播ID"),
+		idEntry,
+		widget.NewLabel("主播名称"),
+		nameEntry,
+		widget.NewLabel("绑定礼物（逗号分隔）"),
+		giftsEntry,
+		container.NewGridWithColumns(2,
+			container.NewVBox(widget.NewLabel("礼物数量"), giftCountEntry),
+			container.NewVBox(widget.NewLabel("钻石总值"), scoreEntry),
+		),
+		container.NewHBox(saveBtn, refreshBtn, initBtn),
+		statusLabel,
+	)
+
+	content := container.NewHSplit(
+		container.NewScroll(table),
+		container.NewPadded(form),
+	)
+	content.SetOffset(0.55)
+
+	return content
 }
 
 func (ui *FyneUI) initRoomSegmentTable(roomTab *RoomTab) {
@@ -1538,16 +1911,18 @@ func (ui *FyneUI) showGiftRecordWindow(roomID string) {
 }
 
 func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
-	rows := [][]string{{"时间", "礼物", "数量", "钻石", "主播", "送礼用户"}}
+	rows := [][]string{{"时间", "礼物", "数量", "钻石", "接收主播", "送礼用户"}}
 	if ui.db == nil {
 		return rows
 	}
 
 	query := `
-		SELECT timestamp, gift_name, gift_count, gift_diamond_value, anchor_id, user_nickname
-		FROM gift_records
-		WHERE room_id = ?
-		ORDER BY timestamp DESC
+		SELECT gr.timestamp, gr.gift_name, gr.gift_count, gr.gift_diamond_value,
+		       COALESCE(a.anchor_name, gr.anchor_id) AS receiver, gr.user_nickname
+		FROM gift_records gr
+		LEFT JOIN anchors a ON gr.anchor_id = a.anchor_id
+		WHERE gr.room_id = ?
+		ORDER BY gr.timestamp DESC
 		LIMIT 200
 	`
 
@@ -1559,18 +1934,22 @@ func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
 
 	for data.Next() {
 		var ts time.Time
-		var giftName, anchorID, user string
+		var giftName, receiver, user sql.NullString
 		var count, diamond int
-		if err := data.Scan(&ts, &giftName, &count, &diamond, &anchorID, &user); err != nil {
+		if err := data.Scan(&ts, &giftName, &count, &diamond, &receiver, &user); err != nil {
 			continue
+		}
+		totalDiamond := diamond * count
+		if totalDiamond == 0 {
+			totalDiamond = diamond
 		}
 		rows = append(rows, []string{
 			ts.Format("01-02 15:04:05"),
-			giftName,
+			giftName.String,
 			fmt.Sprintf("%d", count),
-			fmt.Sprintf("%d", diamond),
-			anchorID,
-			user,
+			fmt.Sprintf("%d", totalDiamond),
+			strings.TrimSpace(receiver.String),
+			user.String,
 		})
 	}
 
