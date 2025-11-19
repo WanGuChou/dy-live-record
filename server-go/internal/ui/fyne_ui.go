@@ -957,6 +957,13 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 		giftItems = result.Data.GiftsInfo.GiftInfo
 	}
 	log.Printf("ℹ️  抓取礼物列表 gift_items 条数: %d", len(giftItems))
+	if len(giftItems) > 0 {
+		if firstJSON, err := json.Marshal(giftItems[0]); err == nil {
+			log.Printf("ℹ️  gift_items 第一个对象: %s", string(firstJSON))
+		} else {
+			log.Printf("ℹ️  gift_items 第一个对象解析失败: %v", err)
+		}
+	}
 	if len(giftItems) == 0 {
 		return 0, fmt.Errorf("未获取到礼物数据")
 	}
