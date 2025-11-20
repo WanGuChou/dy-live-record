@@ -999,27 +999,46 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 	}
 
 	giftItems := make([]douyinGiftItem, 0)
-	gjsonItems := gjson.Get(bodyStr, "..gift_items")
-	if gjsonItems.Exists() && gjsonItems.IsArray() {
-		for _, item := range gjsonItems.Array() {
-			if len(item.Array()) == 0 && item.IsObject() {
-				var parsed douyinGiftItem
-				if err := json.Unmarshal([]byte(item.Raw), &parsed); err == nil {
-					giftItems = append(giftItems, parsed)
-				}
+
+	// 优先解析 data.gifts 数组
+	giftsArray := gjson.Get(bodyStr, "data.gifts")
+	if giftsArray.Exists() && giftsArray.IsArray() {
+		for _, item := range giftsArray.Array() {
+			if !item.Exists() || !item.IsObject() {
 				continue
 			}
-			for _, sub := range item.Array() {
-				if !sub.Exists() || !sub.IsObject() {
+			var parsed douyinGiftItem
+			if err := json.Unmarshal([]byte(item.Raw), &parsed); err == nil {
+				giftItems = append(giftItems, parsed)
+			}
+		}
+	}
+
+	// 兼容旧字段 gift_items/gift_info
+	if len(giftItems) == 0 {
+		gjsonItems := gjson.Get(bodyStr, "..gift_items")
+		if gjsonItems.Exists() && gjsonItems.IsArray() {
+			for _, item := range gjsonItems.Array() {
+				if len(item.Array()) == 0 && item.IsObject() {
+					var parsed douyinGiftItem
+					if err := json.Unmarshal([]byte(item.Raw), &parsed); err == nil {
+						giftItems = append(giftItems, parsed)
+					}
 					continue
 				}
-				var parsed douyinGiftItem
-				if err := json.Unmarshal([]byte(sub.Raw), &parsed); err == nil {
-					giftItems = append(giftItems, parsed)
+				for _, sub := range item.Array() {
+					if !sub.Exists() || !sub.IsObject() {
+						continue
+					}
+					var parsed douyinGiftItem
+					if err := json.Unmarshal([]byte(sub.Raw), &parsed); err == nil {
+						giftItems = append(giftItems, parsed)
+					}
 				}
 			}
 		}
 	}
+
 	if len(giftItems) == 0 {
 		giftItems = result.Data.GiftsInfo.GiftItems
 		if len(giftItems) == 0 && len(result.Data.GiftsInfo.GiftInfo) > 0 {
