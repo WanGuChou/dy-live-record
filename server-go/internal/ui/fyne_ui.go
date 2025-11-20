@@ -724,10 +724,17 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		}()
 	})
 
+	makeFilterField := func(label string, entry *widget.Entry) fyne.CanvasObject {
+		lbl := widget.NewLabel(label + ":")
+		lbl.Alignment = fyne.TextAlignTrailing
+		entryContainer := container.New(layout.NewGridWrapLayout(fyne.NewSize(140, entry.MinSize().Height)), entry)
+		return container.NewHBox(lbl, entryContainer)
+	}
+
 	filterBar := container.NewHBox(
-		container.NewVBox(widget.NewLabel("名称"), nameFilter),
-		container.NewVBox(widget.NewLabel("最小钻石"), minDiamondEntry),
-		container.NewVBox(widget.NewLabel("最大钻石"), maxDiamondEntry),
+		makeFilterField("名称", nameFilter),
+		makeFilterField("最小钻石", minDiamondEntry),
+		makeFilterField("最大钻石", maxDiamondEntry),
 		layout.NewSpacer(),
 	)
 
@@ -757,13 +764,15 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	renderList()
 
 	headerRow := ui.buildGiftHeaderRow()
+	listBackground := canvas.NewRectangle(color.NRGBA{R: 248, G: 249, B: 252, A: 255})
 	listWrapper := container.NewVBox(headerRow, listScroll)
+	listArea := container.NewMax(listBackground, container.NewPadded(listWrapper))
 
 	cardContent := container.NewVBox(
 		filterBar,
 		buttonRow,
 		widget.NewSeparator(),
-		listWrapper,
+		listArea,
 		paginationBar,
 	)
 	card := widget.NewCard("礼物管理", "", container.NewPadded(cardContent))
@@ -1330,6 +1339,21 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 	iconLocalEntry := widget.NewEntry()
 	iconLocalEntry.Disable()
 	statusLabel := widget.NewLabel("")
+	preview := canvas.NewImageFromResource(theme.DocumentIcon())
+	preview.FillMode = canvas.ImageFillContain
+	preview.SetMinSize(fyne.NewSize(150, 150))
+
+	updatePreview := func() {
+		path := strings.TrimSpace(iconLocalEntry.Text)
+		if fileExists(path) {
+			preview.File = path
+			preview.Resource = nil
+		} else {
+			preview.File = ""
+			preview.Resource = theme.DocumentIcon()
+		}
+		preview.Refresh()
+	}
 
 	if isEdit {
 		giftIDEntry.SetText(existing.GiftID)
@@ -1341,6 +1365,7 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 		iconLocalEntry.Enable()
 		iconLocalEntry.SetText(existing.IconLocal)
 		iconLocalEntry.Disable()
+		updatePreview()
 	}
 
 	uploadBtn := widget.NewButton("上传图标", func() {
@@ -1384,6 +1409,7 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 			iconLocalEntry.SetText(filepath.ToSlash(dstPath))
 			iconLocalEntry.Disable()
 			statusLabel.SetText("图标上传成功")
+			updatePreview()
 		}, ui.mainWin).Show()
 	})
 
@@ -1399,6 +1425,7 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 		widget.NewLabel("图标链接"),
 		iconURLEntry,
 		container.NewHBox(widget.NewLabel("本地图标"), iconLocalEntry, uploadBtn),
+		container.NewCenter(preview),
 		statusLabel,
 	)
 
@@ -1444,10 +1471,18 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 }
 
 func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted func()) fyne.CanvasObject {
+	icon := canvas.NewImageFromResource(theme.DocumentIcon())
+	if fileExists(rec.IconLocal) {
+		icon = canvas.NewImageFromFile(rec.IconLocal)
+	}
+	icon.SetMinSize(fyne.NewSize(32, 32))
+	icon.FillMode = canvas.ImageFillContain
+
 	name := widget.NewLabel(rec.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	detail := widget.NewLabel(fmt.Sprintf("ID: %s", rec.GiftID))
 	nameCol := container.NewVBox(name, detail)
+	nameCell := container.NewHBox(icon, container.NewPadded(nameCol))
 
 	editBtn := widget.NewButton("编辑", func() {
 		if onEdit != nil {
@@ -1464,15 +1499,6 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 		}
 	})
 	actionBox := container.NewHBox(editBtn, deleteBtn)
-
-	icon := canvas.NewImageFromResource(theme.DocumentIcon())
-	if fileExists(rec.IconLocal) {
-		icon = canvas.NewImageFromFile(rec.IconLocal)
-	}
-	icon.SetMinSize(fyne.NewSize(32, 32))
-	icon.FillMode = canvas.ImageFillContain
-
-	nameCell := container.NewHBox(icon, container.NewPadded(nameCol))
 
 	row := container.NewGridWithColumns(6,
 		nameCell,
