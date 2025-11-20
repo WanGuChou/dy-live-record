@@ -1402,8 +1402,11 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 		statusLabel,
 	)
 
+	scroll := container.NewVScroll(form)
+	scroll.SetMinSize(fyne.NewSize(480, 400))
+
 	var giftDialog dialog.Dialog
-	giftDialog = dialog.NewCustomConfirm(title, "保存", "取消", container.NewVScroll(form), func(ok bool) {
+	giftDialog = dialog.NewCustomConfirm(title, "保存", "取消", scroll, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -1436,6 +1439,7 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 		}
 		giftDialog.Hide()
 	}, ui.mainWin)
+	giftDialog.Resize(fyne.NewSize(520, 560))
 	giftDialog.Show()
 }
 
