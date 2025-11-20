@@ -157,7 +157,10 @@ func (db *DB) initSchema() error {
 	if _, err := db.conn.Exec(schema); err != nil {
 		return err
 	}
-	return ensureAnchorExtraColumns(db.conn)
+	if err := ensureAnchorExtraColumns(db.conn); err != nil {
+		return err
+	}
+	return ensureGiftTable(db.conn)
 }
 
 // GetConnection 获取原始数据库连接（用于复杂查询）
@@ -214,4 +217,82 @@ func columnExists(conn *sql.DB, table, column string) (bool, error) {
 		}
 	}
 	return false, rows.Err()
+}
+
+func tableExists(conn *sql.DB, table string) (bool, error) {
+	var count int
+	err := conn.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func ensureGiftTable(conn *sql.DB) error {
+	exists, err := tableExists(conn, "gifts")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		_, err := conn.Exec(`
+			CREATE TABLE IF NOT EXISTS gifts (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				gift_id TEXT UNIQUE,
+				gift_name TEXT,
+				diamond_value INTEGER DEFAULT 0,
+				icon_url TEXT,
+				icon_local TEXT,
+				version TEXT,
+				is_deleted INTEGER DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+		`)
+		return err
+	}
+
+	hasID, err := columnExists(conn, "gifts", "id")
+	if err != nil {
+		return err
+	}
+	if !hasID {
+		_, err := conn.Exec(`
+			ALTER TABLE gifts RENAME TO gifts_backup;
+			CREATE TABLE IF NOT EXISTS gifts (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				gift_id TEXT UNIQUE,
+				gift_name TEXT,
+				diamond_value INTEGER DEFAULT 0,
+				icon_url TEXT,
+				icon_local TEXT,
+				version TEXT,
+				is_deleted INTEGER DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			INSERT INTO gifts (gift_id, gift_name, diamond_value, icon_local, version, updated_at)
+			SELECT gift_id, gift_name, diamond_value, icon, version, updated_at FROM gifts_backup;
+			DROP TABLE gifts_backup;
+		`)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := addColumnIfMissing(conn, "gifts", "icon_url", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(conn, "gifts", "icon_local", "TEXT"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(conn, "gifts", "is_deleted", "INTEGER DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(conn, "gifts", "created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(conn, "gifts", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); err != nil {
+		return err
+	}
+	return nil
 }

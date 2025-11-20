@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"io"
 	"log"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
@@ -73,6 +75,26 @@ type MessagePair struct {
 	Detail    map[string]interface{}
 	Timestamp time.Time
 	Source    string
+}
+
+type GiftRecord struct {
+	ID           int
+	GiftID       string
+	Name         string
+	DiamondValue int
+	IconURL      string
+	IconLocal    string
+	Version      string
+	IsDeleted    bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type giftFilter struct {
+	Name       string
+	DiamondMin int
+	DiamondMax int
+	SortAsc    bool
 }
 
 // RoomTab 房间Tab数据
@@ -561,105 +583,89 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 }
 
 func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
-	data := ui.loadAllGifts()
-
 	statusLabel := widget.NewLabel("")
+	filter := giftFilter{SortAsc: true}
 
-	idEntry := widget.NewEntry()
-	idEntry.SetPlaceHolder("礼物ID")
-	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("礼物名称")
-	diamondEntry := widget.NewEntry()
-	diamondEntry.SetPlaceHolder("钻石数")
-	versionEntry := widget.NewEntry()
-	versionEntry.SetPlaceHolder("版本号")
+	nameFilter := widget.NewEntry()
+	nameFilter.SetPlaceHolder("礼物名称关键词")
+	minDiamondEntry := widget.NewEntry()
+	minDiamondEntry.SetPlaceHolder("最小钻石")
+	maxDiamondEntry := widget.NewEntry()
+	maxDiamondEntry.SetPlaceHolder("最大钻石")
 
-	table := widget.NewTable(
-		func() (int, int) {
-			if len(data) == 0 {
-				return 0, 0
+	listContent := container.NewVBox()
+	listScroll := container.NewVScroll(listContent)
+	listScroll.SetMinSize(fyne.NewSize(600, 420))
+
+	var renderList func()
+	renderList = func() {
+		records := ui.loadGiftRecords(filter)
+		listContent.Objects = nil
+		if len(records) == 0 {
+			listContent.Add(widget.NewLabel("暂无礼物数据"))
+		} else {
+			for idx, rec := range records {
+				record := rec
+				row := ui.buildGiftRow(record,
+					func() {
+						ui.showGiftEditor(&record, func() {
+							statusLabel.SetText("已保存")
+							renderList()
+						})
+					},
+					func() {
+						if err := ui.setGiftDeleted(record.ID, !record.IsDeleted); err != nil {
+							statusLabel.SetText(fmt.Sprintf("操作失败: %v", err))
+							return
+						}
+						if record.IsDeleted {
+							statusLabel.SetText("已恢复礼物")
+						} else {
+							statusLabel.SetText("已删除礼物")
+						}
+						renderList()
+					})
+				listContent.Add(row)
+				if idx < len(records)-1 {
+					listContent.Add(widget.NewSeparator())
+				}
 			}
-			return len(data), len(data[0])
-		},
-		func() fyne.CanvasObject { return widget.NewLabel("") },
-		func(id widget.TableCellID, cell fyne.CanvasObject) {
-			if id.Row < len(data) && id.Col < len(data[id.Row]) {
-				cell.(*widget.Label).SetText(data[id.Row][id.Col])
-			}
-		},
-	)
-	table.SetColumnWidth(0, 140)
-	table.SetColumnWidth(1, 180)
-	table.SetColumnWidth(2, 80)
-	table.SetColumnWidth(3, 120)
-	table.SetColumnWidth(4, 140)
-
-	clearForm := func() {
-		idEntry.SetText("")
-		nameEntry.SetText("")
-		diamondEntry.SetText("")
-		versionEntry.SetText("")
-		statusLabel.SetText("")
-		table.UnselectAll()
+		}
+		listContent.Refresh()
 	}
 
-	saveBtn := widget.NewButton("保存礼物", func() {
-		if idEntry.Text == "" || nameEntry.Text == "" {
-			statusLabel.SetText("请填写礼物ID和名称")
-			return
+	sortBtn := widget.NewButton("钻石排序 ↑", func() {})
+	sortBtn.OnTapped = func() {
+		filter.SortAsc = !filter.SortAsc
+		if filter.SortAsc {
+			sortBtn.SetText("钻石排序 ↑")
+		} else {
+			sortBtn.SetText("钻石排序 ↓")
 		}
-		diamond := toInt(diamondEntry.Text)
-		_, err := ui.db.Exec(`
-			INSERT INTO gifts (gift_id, gift_name, diamond_value, version, updated_at)
-			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-			ON CONFLICT(gift_id) DO UPDATE SET gift_name=excluded.gift_name, diamond_value=excluded.diamond_value, version=excluded.version, updated_at=CURRENT_TIMESTAMP
-		`, idEntry.Text, nameEntry.Text, diamond, versionEntry.Text)
-		if err != nil {
-			log.Printf("⚠️  保存礼物失败: %v", err)
-			statusLabel.SetText(fmt.Sprintf("保存失败: %v", err))
-			return
-		}
-		data = ui.loadAllGifts()
-		table.Refresh()
-		statusLabel.SetText("✅ 礼物已保存")
-	})
-
-	deleteBtn := widget.NewButton("删除礼物", func() {
-		id := strings.TrimSpace(idEntry.Text)
-		if id == "" {
-			statusLabel.SetText("请选择需要删除的礼物")
-			return
-		}
-		if _, err := ui.db.Exec(`DELETE FROM gifts WHERE gift_id = ?`, id); err != nil {
-			statusLabel.SetText(fmt.Sprintf("删除失败: %v", err))
-			return
-		}
-		data = ui.loadAllGifts()
-		table.Refresh()
-		clearForm()
-		statusLabel.SetText("已删除")
-	})
-
-	refreshBtn := widget.NewButton("刷新列表", func() {
-		data = ui.loadAllGifts()
-		table.Refresh()
-		statusLabel.SetText("已刷新")
-	})
-
-	clearBtn := widget.NewButton("清空表单", func() {
-		clearForm()
-	})
-
-	table.OnSelected = func(id widget.TableCellID) {
-		if id.Row <= 0 || id.Row >= len(data) {
-			return
-		}
-		row := data[id.Row]
-		idEntry.SetText(row[0])
-		nameEntry.SetText(row[1])
-		diamondEntry.SetText(row[2])
-		versionEntry.SetText(row[3])
+		renderList()
 	}
+
+	searchBtn := widget.NewButton("查询", func() {
+		filter.Name = strings.TrimSpace(nameFilter.Text)
+		filter.DiamondMin = parseTextInt(minDiamondEntry.Text)
+		filter.DiamondMax = parseTextInt(maxDiamondEntry.Text)
+		renderList()
+	})
+	resetBtn := widget.NewButton("重置", func() {
+		nameFilter.SetText("")
+		minDiamondEntry.SetText("")
+		maxDiamondEntry.SetText("")
+		filter = giftFilter{SortAsc: true}
+		sortBtn.SetText("钻石排序 ↑")
+		renderList()
+	})
+
+	addBtn := widget.NewButton("新增礼物", func() {
+		ui.showGiftEditor(nil, func() {
+			statusLabel.SetText("已添加礼物")
+			renderList()
+		})
+	})
 
 	var latestBtn *widget.Button
 	latestBtn = widget.NewButton("更新最新礼物列表", func() {
@@ -677,35 +683,35 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 					statusLabel.SetText(fmt.Sprintf("更新失败: %v", err))
 					return
 				}
-				data = ui.loadAllGifts()
-				table.Refresh()
 				statusLabel.SetText(fmt.Sprintf("已同步 %d 个礼物", count))
+				renderList()
 			})
 		}()
 	})
 
-	form := container.NewVBox(
-		widget.NewLabel("礼物维护"),
-		latestBtn,
-		statusLabel,
-		widget.NewSeparator(),
-		widget.NewLabel("礼物ID"),
-		idEntry,
-		widget.NewLabel("礼物名称"),
-		nameEntry,
-		widget.NewLabel("钻石数"),
-		diamondEntry,
-		widget.NewLabel("版本号"),
-		versionEntry,
-		container.NewHBox(saveBtn, deleteBtn),
-		container.NewHBox(refreshBtn, clearBtn),
+	filterBar := container.NewGridWithColumns(5,
+		container.NewVBox(widget.NewLabel("名称"), nameFilter),
+		container.NewVBox(widget.NewLabel("最小钻石"), minDiamondEntry),
+		container.NewVBox(widget.NewLabel("最大钻石"), maxDiamondEntry),
+		searchBtn,
+		resetBtn,
 	)
 
-	return container.NewBorder(
-		form,
-		nil, nil, nil,
-		container.NewScroll(table),
+	actionBar := container.NewVBox(
+		container.NewHBox(addBtn, latestBtn, sortBtn, layout.NewSpacer(), statusLabel),
+		filterBar,
 	)
+
+	renderList()
+
+	background := canvas.NewRectangle(color.NRGBA{R: 247, G: 248, B: 252, A: 255})
+	content := container.NewVBox(
+		actionBar,
+		widget.NewSeparator(),
+		listScroll,
+	)
+
+	return container.NewMax(background, container.NewPadded(content))
 }
 
 func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
@@ -913,7 +919,12 @@ func (ui *FyneUI) loadAllGifts() [][]string {
 		return rows
 	}
 
-	query := `SELECT gift_id, gift_name, diamond_value, version, updated_at FROM gifts ORDER BY updated_at DESC`
+	query := `
+		SELECT gift_id, gift_name, diamond_value, version, updated_at
+		FROM gifts
+		WHERE COALESCE(is_deleted, 0) = 0
+		ORDER BY updated_at DESC
+	`
 	data, err := ui.db.Query(query)
 	if err != nil {
 		return rows
@@ -942,21 +953,6 @@ const (
 	douyinGiftListAPI   = "https://live.douyin.com/webcast/gift/list/?device_platform=webapp&aid=6383"
 	giftIconStoragePath = "assets/gift_icons"
 )
-
-type douyinGiftResponse struct {
-	StatusCode int            `json:"status_code"`
-	Message    string         `json:"message"`
-	Data       douyinGiftData `json:"data"`
-}
-
-type douyinGiftData struct {
-	GiftsInfo douyinGiftsInfo `json:"gifts_info"`
-}
-
-type douyinGiftsInfo struct {
-	GiftItems []douyinGiftItem `json:"gift_items"`
-	GiftInfo  []douyinGiftItem `json:"gift_info"`
-}
 
 type douyinGiftItem struct {
 	ID           int64           `json:"id"`
@@ -1081,15 +1077,17 @@ func (ui *FyneUI) fetchAndStoreLatestGifts() (int, error) {
 		}
 
 		_, err := tx.Exec(`
-			INSERT INTO gifts (gift_id, gift_name, diamond_value, icon, version, updated_at)
-			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			INSERT INTO gifts (gift_id, gift_name, diamond_value, icon_url, icon_local, version, is_deleted)
+			VALUES (?, ?, ?, ?, ?, ?, 0)
 			ON CONFLICT(gift_id) DO UPDATE SET 
 				gift_name=excluded.gift_name,
 				diamond_value=excluded.diamond_value,
-				icon=excluded.icon,
+				icon_url=excluded.icon_url,
+				icon_local=excluded.icon_local,
 				version=excluded.version,
+				is_deleted=0,
 				updated_at=CURRENT_TIMESTAMP
-		`, giftID, strings.TrimSpace(gift.Name), gift.DiamondCount, iconPath, "douyin_api")
+		`, giftID, strings.TrimSpace(gift.Name), gift.DiamondCount, iconURL, iconPath, "douyin_api")
 		if err != nil {
 			log.Printf("⚠️  保存礼物 %s 失败: %v", giftID, err)
 			continue
@@ -1146,6 +1144,310 @@ func truncateString(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+func parseTextInt(text string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func formatDisplayTime(t time.Time) string {
+	if t.IsZero() {
+		return "--"
+	}
+	return t.Format("01-02 15:04")
+}
+
+func (ui *FyneUI) loadGiftRecords(filter giftFilter) []GiftRecord {
+	records := make([]GiftRecord, 0)
+	if ui.db == nil {
+		return records
+	}
+
+	query := `
+		SELECT id, gift_id, gift_name, diamond_value, icon_url, icon_local, version,
+		       COALESCE(is_deleted, 0), created_at, updated_at
+		FROM gifts
+		WHERE 1=1
+	`
+	args := make([]interface{}, 0)
+	if filter.Name != "" {
+		query += " AND gift_name LIKE ?"
+		args = append(args, "%"+filter.Name+"%")
+	}
+	if filter.DiamondMin > 0 {
+		query += " AND diamond_value >= ?"
+		args = append(args, filter.DiamondMin)
+	}
+	if filter.DiamondMax > 0 {
+		query += " AND diamond_value <= ?"
+		args = append(args, filter.DiamondMax)
+	}
+	if filter.SortAsc {
+		query += " ORDER BY diamond_value ASC, updated_at DESC"
+	} else {
+		query += " ORDER BY diamond_value DESC, updated_at DESC"
+	}
+
+	rows, err := ui.db.Query(query, args...)
+	if err != nil {
+		return records
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var rec GiftRecord
+		var created, updated sql.NullTime
+		var isDeleted int
+		if err := rows.Scan(&rec.ID, &rec.GiftID, &rec.Name, &rec.DiamondValue, &rec.IconURL, &rec.IconLocal, &rec.Version, &isDeleted, &created, &updated); err != nil {
+			continue
+		}
+		rec.IsDeleted = isDeleted == 1
+		if created.Valid {
+			rec.CreatedAt = created.Time
+		}
+		if updated.Valid {
+			rec.UpdatedAt = updated.Time
+		}
+		records = append(records, rec)
+	}
+	return records
+}
+
+func (ui *FyneUI) saveGiftRecord(rec *GiftRecord) error {
+	if ui.db == nil || rec == nil {
+		return fmt.Errorf("数据库未初始化")
+	}
+
+	if rec.ID > 0 {
+		_, err := ui.db.Exec(`
+			UPDATE gifts
+			SET gift_id = ?, gift_name = ?, diamond_value = ?, icon_url = ?, icon_local = ?, version = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, rec.GiftID, rec.Name, rec.DiamondValue, rec.IconURL, rec.IconLocal, rec.Version, rec.ID)
+		return err
+	}
+
+	_, err := ui.db.Exec(`
+		INSERT INTO gifts (gift_id, gift_name, diamond_value, icon_url, icon_local, version, is_deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(gift_id) DO UPDATE SET
+			gift_name=excluded.gift_name,
+			diamond_value=excluded.diamond_value,
+			icon_url=excluded.icon_url,
+			icon_local=excluded.icon_local,
+			version=excluded.version,
+			is_deleted=excluded.is_deleted,
+			updated_at=CURRENT_TIMESTAMP
+	`, rec.GiftID, rec.Name, rec.DiamondValue, rec.IconURL, rec.IconLocal, rec.Version, boolToInt(rec.IsDeleted))
+	return err
+}
+
+func (ui *FyneUI) setGiftDeleted(id int, deleted bool) error {
+	if ui.db == nil {
+		return fmt.Errorf("数据库未初始化")
+	}
+	_, err := ui.db.Exec(`UPDATE gifts SET is_deleted = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, boolToInt(deleted), id)
+	return err
+}
+
+func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
+	if ui.mainWin == nil {
+		return
+	}
+
+	isEdit := existing != nil
+	title := "新增礼物"
+	if isEdit {
+		title = "编辑礼物"
+	}
+
+	giftIDEntry := widget.NewEntry()
+	nameEntry := widget.NewEntry()
+	diamondEntry := widget.NewEntry()
+	versionEntry := widget.NewEntry()
+	iconURLEntry := widget.NewEntry()
+	iconLocalEntry := widget.NewEntry()
+	iconLocalEntry.Disable()
+	statusLabel := widget.NewLabel("")
+
+	if isEdit {
+		giftIDEntry.SetText(existing.GiftID)
+		giftIDEntry.Disable()
+		nameEntry.SetText(existing.Name)
+		diamondEntry.SetText(fmt.Sprintf("%d", existing.DiamondValue))
+		versionEntry.SetText(existing.Version)
+		iconURLEntry.SetText(existing.IconURL)
+		iconLocalEntry.Enable()
+		iconLocalEntry.SetText(existing.IconLocal)
+		iconLocalEntry.Disable()
+	}
+
+	uploadBtn := widget.NewButton("上传图标", func() {
+		if ui.mainWin == nil {
+			return
+		}
+		dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil {
+				statusLabel.SetText(fmt.Sprintf("选择文件失败: %v", err))
+				return
+			}
+			if reader == nil {
+				return
+			}
+			defer reader.Close()
+
+			dataBytes, err := io.ReadAll(reader)
+			if err != nil {
+				statusLabel.SetText(fmt.Sprintf("读取文件失败: %v", err))
+				return
+			}
+
+			ext := filepath.Ext(reader.URI().Name())
+			if ext == "" {
+				ext = ".png"
+			}
+			if err := os.MkdirAll(giftIconStoragePath, 0755); err != nil {
+				statusLabel.SetText(fmt.Sprintf("创建目录失败: %v", err))
+				return
+			}
+			fileName := fmt.Sprintf("manual_%d%s", time.Now().UnixNano(), ext)
+			if strings.TrimSpace(giftIDEntry.Text) != "" {
+				fileName = fmt.Sprintf("%s%s", strings.TrimSpace(giftIDEntry.Text), ext)
+			}
+			dstPath := filepath.Join(giftIconStoragePath, fileName)
+			if err := os.WriteFile(dstPath, dataBytes, 0644); err != nil {
+				statusLabel.SetText(fmt.Sprintf("保存图标失败: %v", err))
+				return
+			}
+			iconLocalEntry.Enable()
+			iconLocalEntry.SetText(filepath.ToSlash(dstPath))
+			iconLocalEntry.Disable()
+			statusLabel.SetText("图标上传成功")
+		}, ui.mainWin).Show()
+	})
+
+	form := container.NewVBox(
+		widget.NewLabel("礼物ID"),
+		giftIDEntry,
+		widget.NewLabel("礼物名称"),
+		nameEntry,
+		widget.NewLabel("钻石数"),
+		diamondEntry,
+		widget.NewLabel("版本号"),
+		versionEntry,
+		widget.NewLabel("图标链接"),
+		iconURLEntry,
+		container.NewHBox(widget.NewLabel("本地图标"), iconLocalEntry, uploadBtn),
+		statusLabel,
+	)
+
+	var giftDialog dialog.Dialog
+	giftDialog = dialog.NewCustomConfirm(title, "保存", "取消", container.NewVScroll(form), func(ok bool) {
+		if !ok {
+			return
+		}
+		rec := &GiftRecord{
+			GiftID:       strings.TrimSpace(giftIDEntry.Text),
+			Name:         strings.TrimSpace(nameEntry.Text),
+			DiamondValue: parseTextInt(diamondEntry.Text),
+			Version:      strings.TrimSpace(versionEntry.Text),
+			IconURL:      strings.TrimSpace(iconURLEntry.Text),
+			IconLocal:    strings.TrimSpace(iconLocalEntry.Text),
+		}
+		if rec.GiftID == "" || rec.Name == "" {
+			statusLabel.SetText("礼物ID和名称不能为空")
+			return
+		}
+		if rec.DiamondValue < 0 {
+			statusLabel.SetText("钻石数必须为正数")
+			return
+		}
+		if isEdit {
+			rec.ID = existing.ID
+			rec.IsDeleted = existing.IsDeleted
+		}
+		if err := ui.saveGiftRecord(rec); err != nil {
+			statusLabel.SetText(fmt.Sprintf("保存失败: %v", err))
+			return
+		}
+		if onSaved != nil {
+			onSaved()
+		}
+		giftDialog.Hide()
+	}, ui.mainWin)
+	giftDialog.Show()
+}
+
+func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted func()) fyne.CanvasObject {
+	icon := canvas.NewImageFromResource(theme.DocumentIcon())
+	if fileExists(rec.IconLocal) {
+		icon = canvas.NewImageFromFile(rec.IconLocal)
+	}
+	icon.SetMinSize(fyne.NewSize(64, 64))
+	icon.FillMode = canvas.ImageFillContain
+
+	name := widget.NewLabel(fmt.Sprintf("%s (%s)", rec.Name, rec.GiftID))
+	name.TextStyle = fyne.TextStyle{Bold: true}
+	created := rec.CreatedAt
+	if created.IsZero() {
+		created = rec.UpdatedAt
+	}
+	meta := widget.NewLabel(fmt.Sprintf("💎 %d | 版本: %s | 创建: %s", rec.DiamondValue, rec.Version, formatDisplayTime(created)))
+	status := widget.NewLabel("状态: 正常")
+	if rec.IsDeleted {
+		status.SetText("状态: 已删除")
+	}
+
+	editBtn := widget.NewButton("编辑", func() {
+		if onEdit != nil {
+			onEdit()
+		}
+	})
+	deleteLabel := "删除"
+	if rec.IsDeleted {
+		deleteLabel = "恢复"
+	}
+	deleteBtn := widget.NewButton(deleteLabel, func() {
+		if onToggleDeleted != nil {
+			onToggleDeleted()
+		}
+	})
+
+	rowBackground := canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+	rowBackground.SetStrokeColor(color.NRGBA{R: 225, G: 229, B: 236, A: 255})
+	rowBackground.SetStrokeWidth(1)
+
+	iconBox := container.NewCenter(icon)
+	iconBox.SetMinSize(fyne.NewSize(80, 80))
+	info := container.NewVBox(name, meta, status)
+	buttons := container.NewVBox(editBtn, deleteBtn)
+
+	content := container.NewBorder(nil, nil, iconBox, buttons, info)
+	content = container.NewPadded(content)
+
+	return container.NewMax(rowBackground, content)
+}
+
+func fileExists(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) [][]string {
