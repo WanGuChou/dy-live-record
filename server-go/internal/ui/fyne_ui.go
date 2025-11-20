@@ -735,18 +735,17 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		}()
 	})
 
+	// 创建筛选输入框 - 使用网格布局均匀分布
 	makeFilterField := func(label string, entry *widget.Entry) fyne.CanvasObject {
-		lbl := widget.NewLabel(label + ":")
-		lbl.Alignment = fyne.TextAlignTrailing
-		field := ui.giftEntryField(entry, 150)
-		return container.NewHBox(lbl, field)
+		lbl := widget.NewLabel(label)
+		lbl.Alignment = fyne.TextAlignLeading
+		return container.NewVBox(lbl, entry)
 	}
 
-	filterBar := container.NewHBox(
-		makeFilterField("名称", nameFilter),
+	filterBar := container.New(layout.NewGridLayoutWithColumns(3),
+		makeFilterField("礼物名称关键词", nameFilter),
 		makeFilterField("最小钻石", minDiamondEntry),
 		makeFilterField("最大钻石", maxDiamondEntry),
-		layout.NewSpacer(),
 	)
 
 	prevBtn = widget.NewButton("上一页", func() {
@@ -770,9 +769,35 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		statusLabel,
 	)
 
+	// 每页行数设置
+	pageSizeEntry := widget.NewEntry()
+	pageSizeEntry.SetText(fmt.Sprintf("%d", defaultPageSize))
+	pageSizeEntry.SetPlaceHolder("每页行数")
+	
+	pageSizeBtn := widget.NewButton("设置", func() {
+		newSize := parseTextInt(pageSizeEntry.Text)
+		if newSize > 0 && newSize <= 100 {
+			filter.PageSize = newSize
+			filter.Page = 1 // 重置到第一页
+			renderList()
+		} else {
+			statusLabel.SetText("每页行数必须在 1-100 之间")
+		}
+	})
+	
+	pageSizeBox := container.NewHBox(
+		widget.NewLabel("每页显示:"),
+		pageSizeEntry,
+		pageSizeBtn,
+	)
+	
 	paginationButtons := container.NewCenter(container.NewHBox(prevBtn, nextBtn))
 	paginationBar := container.NewVBox(
-		paginationButtons,
+		container.NewHBox(
+			paginationButtons,
+			layout.NewSpacer(),
+			pageSizeBox,
+		),
 		container.NewCenter(pageLabel),
 	)
 
@@ -1433,7 +1458,8 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 		versionEntry,
 		widget.NewLabel("图标链接"),
 		iconURLEntry,
-		container.NewHBox(widget.NewLabel("本地图标"), iconLocalEntry, uploadBtn),
+		widget.NewLabel("本地图标"),
+		container.NewBorder(nil, nil, nil, uploadBtn, iconLocalEntry),
 		container.NewCenter(preview),
 		statusLabel,
 	)
