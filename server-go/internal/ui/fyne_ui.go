@@ -333,38 +333,6 @@ func (ui *FyneUI) createOverviewTab() fyne.CanvasObject {
 		ui.refreshData()
 	})
 
-	manualRoomEntry := widget.NewEntry()
-	manualRoomEntry.SetPlaceHolder("输入抖音房间号 (短号或 room_id)")
-	manualRoomBtn := widget.NewButton("手动添加房间", func() {
-		roomID := strings.TrimSpace(manualRoomEntry.Text)
-		if roomID == "" {
-			ui.updateOverviewStatus("状态: 房间号不能为空")
-			return
-		}
-
-		manualRoomEntry.SetText("")
-
-		go func(id string) {
-			if err := ui.startManualRoom(id); err != nil {
-				log.Printf("❌ 启动房间 %s 失败: %v", id, err)
-				ui.updateOverviewStatus(fmt.Sprintf("状态: 房间 %s 连接失败: %v", id, err))
-			} else {
-				ui.updateOverviewStatus(fmt.Sprintf("状态: 正在监听房间 %s", id))
-			}
-		}(roomID)
-	})
-
-	entryContainer := container.New(layout.NewGridWrapLayout(fyne.NewSize(280, manualRoomEntry.MinSize().Height)), manualRoomEntry)
-
-	manualRoomSection := container.NewVBox(
-		widget.NewLabel("手动添加房间"),
-		container.NewHBox(
-			entryContainer,
-			manualRoomBtn,
-		),
-		widget.NewLabel("无需浏览器插件即可直接建立 WSS 连接并获取直播消息。"),
-	)
-
 	infoText := `📊 实时监控说明
 
 1. 打开浏览器并安装插件
@@ -406,8 +374,6 @@ func (ui *FyneUI) createOverviewTab() fyne.CanvasObject {
 		roomLabel,
 		ui.overviewStatus,
 		refreshBtn,
-		widget.NewSeparator(),
-		manualRoomSection,
 		widget.NewSeparator(),
 		info,
 	)
@@ -827,6 +793,46 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 }
 
 func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
+	statusLabel := widget.NewLabel("")
+	
+	// 手动添加房间区域
+	manualRoomEntry := widget.NewEntry()
+	manualRoomEntry.SetPlaceHolder("输入抖音房间号 (短号或 room_id)")
+	
+	addRoomBtn := widget.NewButton("手动添加房间", func() {
+		roomID := strings.TrimSpace(manualRoomEntry.Text)
+		if roomID == "" {
+			statusLabel.SetText("❌ 房间号不能为空")
+			return
+		}
+
+		manualRoomEntry.SetText("")
+		statusLabel.SetText(fmt.Sprintf("⏳ 正在连接房间 %s...", roomID))
+
+		go func(id string) {
+			if err := ui.startManualRoom(id); err != nil {
+				log.Printf("❌ 启动房间 %s 失败: %v", id, err)
+				ui.runOnMain(func() {
+					statusLabel.SetText(fmt.Sprintf("❌ 房间 %s 连接失败: %v", id, err))
+				})
+			} else {
+				ui.runOnMain(func() {
+					statusLabel.SetText(fmt.Sprintf("✅ 正在监听房间 %s", id))
+					ui.updateOverviewStatus(fmt.Sprintf("状态: 正在监听房间 %s", id))
+				})
+			}
+		}(roomID)
+	})
+	addRoomBtn.Importance = widget.HighImportance
+	
+	manualRoomSection := container.NewVBox(
+		widget.NewLabel("📡 手动添加直播间"),
+		widget.NewLabel("无需浏览器插件，直接建立 WSS 连接获取直播消息"),
+		container.NewBorder(nil, nil, nil, addRoomBtn, manualRoomEntry),
+		widget.NewSeparator(),
+	)
+	
+	// 历史房间查询区域
 	roomFilter := widget.NewEntry()
 	roomFilter.SetPlaceHolder("房间号")
 	anchorFilter := widget.NewEntry()
@@ -843,7 +849,13 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 	for i, row := range data {
 		summaries[i] = roomSummary{ID: row[0], Title: row[1], Display: strings.Join(row, " | ")}
 	}
-	statusLabel := widget.NewLabel(fmt.Sprintf("共 %d 条记录", len(summaries)))
+	
+	updateStatusLabel := func() {
+		if statusLabel.Text == "" || strings.HasPrefix(statusLabel.Text, "共") {
+			statusLabel.SetText(fmt.Sprintf("共 %d 条记录", len(summaries)))
+		}
+	}
+	updateStatusLabel()
 
 	roomList := widget.NewList(
 		func() int { return len(summaries) },
@@ -860,7 +872,7 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 		selected = int(id)
 	}
 
-	queryBtn := widget.NewButton("查询", func() {
+	queryBtn := widget.NewButton("查询历史房间", func() {
 		data = ui.loadRoomSummaries(roomFilter.Text, anchorFilter.Text)
 		summaries = make([]roomSummary, len(data))
 		for i, row := range data {
@@ -906,19 +918,24 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 		}
 	})
 
-	filterBar := container.NewVBox(
-		widget.NewLabel("房间筛选"),
+	historySection := container.NewVBox(
+		widget.NewLabel("📋 历史房间查询"),
 		container.NewGridWithColumns(2,
 			container.NewVBox(widget.NewLabel("房间号"), roomFilter),
 			container.NewVBox(widget.NewLabel("主播"), anchorFilter),
 		),
 		container.NewHBox(queryBtn, openBtn, exportGiftsBtn, exportAnchorsBtn),
 		widget.NewSeparator(),
+	)
+	
+	topSection := container.NewVBox(
+		manualRoomSection,
+		historySection,
 		statusLabel,
 	)
 
 	return container.NewBorder(
-		filterBar,
+		topSection,
 		nil, nil, nil,
 		container.NewScroll(roomList),
 	)
