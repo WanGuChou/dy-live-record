@@ -675,8 +675,8 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		}
 	}
 
-	sortBtn := ui.newGiftButton("钻石排序 ↑", 120, nil)
-	sortBtn.onTapped = func() {
+	sortBtn := widget.NewButton("钻石排序 ↑", nil)
+	sortBtn.OnTapped = func() {
 		filter.SortAsc = !filter.SortAsc
 		if filter.SortAsc {
 			sortBtn.SetText("钻石排序 ↑")
@@ -685,15 +685,18 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		}
 		renderList()
 	}
+	sortBtn.Importance = widget.MediumImportance
 
-	searchBtn := ui.newGiftButton("查询", 96, func() {
+	searchBtn := widget.NewButton("查询", func() {
 		filter.Name = strings.TrimSpace(nameFilter.Text)
 		filter.DiamondMin = parseTextInt(minDiamondEntry.Text)
 		filter.DiamondMax = parseTextInt(maxDiamondEntry.Text)
 		filter.Page = 1
 		renderList()
 	})
-	resetBtn := ui.newGiftButton("重置", 96, func() {
+	searchBtn.Importance = widget.HighImportance
+	
+	resetBtn := widget.NewButton("重置", func() {
 		nameFilter.SetText("")
 		minDiamondEntry.SetText("")
 		maxDiamondEntry.SetText("")
@@ -702,15 +705,16 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		renderList()
 	})
 
-	addBtn := ui.newGiftButton("新增礼物", 110, func() {
+	addBtn := widget.NewButton("新增礼物", func() {
 		ui.showGiftEditor(nil, func() {
 			statusLabel.SetText("已添加礼物")
 			renderList()
 		})
 	})
+	addBtn.Importance = widget.HighImportance
 
-	var latestBtn *giftButton
-	latestBtn = ui.newGiftButton("更新最新礼物列表", 160, func() {
+	var latestBtn *widget.Button
+	latestBtn = widget.NewButton("更新最新礼物列表", func() {
 		if ui.db == nil {
 			statusLabel.SetText("数据库未初始化")
 			return
@@ -735,61 +739,52 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		lbl := widget.NewLabel(label + ":")
 		lbl.Alignment = fyne.TextAlignTrailing
 		field := ui.giftEntryField(entry, 150)
-		return container.NewHBox(lbl, ui.fixedSpacer(8), field)
+		return container.NewHBox(lbl, field)
 	}
 
 	filterBar := container.NewHBox(
 		makeFilterField("名称", nameFilter),
-		ui.fixedSpacer(16),
 		makeFilterField("最小钻石", minDiamondEntry),
-		ui.fixedSpacer(16),
 		makeFilterField("最大钻石", maxDiamondEntry),
 		layout.NewSpacer(),
 	)
 
-	prevBtn = ui.newGiftButton("上一页", 100, func() {
+	prevBtn = widget.NewButton("上一页", func() {
 		if filter.Page > 1 {
 			filter.Page--
 			renderList()
 		}
 	})
-	nextBtn = ui.newGiftButton("下一页", 100, func() {
+	nextBtn = widget.NewButton("下一页", func() {
 		filter.Page++
 		renderList()
 	})
 
 	buttonRow := container.NewHBox(
 		searchBtn,
-		ui.fixedSpacer(8),
 		resetBtn,
-		ui.fixedSpacer(8),
 		addBtn,
-		ui.fixedSpacer(8),
 		latestBtn,
-		ui.fixedSpacer(8),
 		sortBtn,
 		layout.NewSpacer(),
 		statusLabel,
 	)
 
-	paginationButtons := container.NewCenter(container.NewHBox(prevBtn, ui.fixedSpacer(12), nextBtn))
+	paginationButtons := container.NewCenter(container.NewHBox(prevBtn, nextBtn))
 	paginationBar := container.NewVBox(
 		paginationButtons,
-		ui.fixedSpacer(8),
 		container.NewCenter(pageLabel),
 	)
 
 	renderList()
 
 	headerRow := ui.buildGiftHeaderRow()
-	listBackground := canvas.NewRectangle(ui.giftListBackgroundColor())
-	listBackground.CornerRadius = 12
-	bodyContent := container.NewVBox(ui.giftRowDivider(), listScroll)
-	listWrapper := container.NewBorder(headerRow, nil, nil, nil, bodyContent)
-	listArea := container.NewMax(listBackground, container.NewPadded(listWrapper))
+	// 移除自定义背景，使用标准容器以跟随主题
+	listWrapper := container.NewBorder(headerRow, nil, nil, nil, 
+		container.NewVBox(widget.NewSeparator(), listScroll))
 
 	topSection := container.NewVBox(filterBar, buttonRow, widget.NewSeparator())
-	mainContent := container.NewBorder(topSection, paginationBar, nil, nil, listArea)
+	mainContent := container.NewBorder(topSection, paginationBar, nil, nil, listWrapper)
 
 	return container.NewPadded(mainContent)
 }
@@ -1485,57 +1480,76 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 }
 
 func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted func()) fyne.CanvasObject {
-	palette := ui.giftPalette()
+	// 图标
 	icon := canvas.NewImageFromResource(theme.DocumentIcon())
 	if fileExists(rec.IconLocal) {
 		icon = canvas.NewImageFromFile(rec.IconLocal)
 	}
 	icon.SetMinSize(fyne.NewSize(32, 32))
 	icon.FillMode = canvas.ImageFillContain
-	iconWrapper := container.New(layout.NewGridWrapLayout(fyne.NewSize(32, 32)), icon)
 
+	// 礼物名称（加粗）
 	name := widget.NewLabel(rec.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	name.Wrapping = fyne.TextWrapOff
 	name.Truncation = fyne.TextTruncateEllipsis
-	name.Alignment = fyne.TextAlignLeading
-	nameRow := container.NewHBox(iconWrapper, ui.fixedSpacer(8), name, layout.NewSpacer())
+	nameWithIcon := container.NewBorder(nil, nil, icon, nil, container.NewPadded(name))
 
-	editBtn := ui.newGiftButton("编辑", 60, func() {
+	// ID
+	idLabel := widget.NewLabel(rec.GiftID)
+	idLabel.Alignment = fyne.TextAlignCenter
+	idLabel.Wrapping = fyne.TextWrapOff
+	
+	// 钻石数
+	diamondLabel := widget.NewLabel(fmt.Sprintf("%d", rec.DiamondValue))
+	diamondLabel.Alignment = fyne.TextAlignCenter
+	diamondLabel.Wrapping = fyne.TextWrapOff
+	
+	// 版本号
+	versionLabel := widget.NewLabel(rec.Version)
+	versionLabel.Alignment = fyne.TextAlignCenter
+	versionLabel.Wrapping = fyne.TextWrapOff
+	versionLabel.Truncation = fyne.TextTruncateEllipsis
+	
+	// 更新时间
+	timeLabel := widget.NewLabel(formatDisplayTime(rec.UpdatedAt))
+	timeLabel.Alignment = fyne.TextAlignCenter
+	timeLabel.Wrapping = fyne.TextWrapOff
+
+	// 操作按钮
+	editBtn := widget.NewButton("编辑", func() {
 		if onEdit != nil {
 			onEdit()
 		}
 	})
+	editBtn.Importance = widget.LowImportance
+	
 	deleteLabel := "删除"
 	if rec.IsDeleted {
 		deleteLabel = "恢复"
 	}
-	deleteBtn := ui.newGiftButton(deleteLabel, 60, func() {
+	deleteBtn := widget.NewButton(deleteLabel, func() {
 		if onToggleDeleted != nil {
 			onToggleDeleted()
 		}
 	})
-	actionBox := container.NewHBox(editBtn, ui.fixedSpacer(8), deleteBtn)
-	actionCell := container.NewHBox(layout.NewSpacer(), actionBox)
+	deleteBtn.Importance = widget.LowImportance
+	
+	actionBox := container.NewHBox(editBtn, deleteBtn)
 
+	// 使用网格布局，6列
 	grid := container.New(layout.NewGridLayoutWithColumns(6),
-		nameRow,
-		ui.giftTableCell(rec.GiftID, fyne.TextAlignCenter, false),
-		ui.giftTableCell(fmt.Sprintf("%d", rec.DiamondValue), fyne.TextAlignCenter, false),
-		ui.giftTableCell(rec.Version, fyne.TextAlignTrailing, false),
-		ui.giftTableCell(formatDisplayTime(rec.CreatedAt), fyne.TextAlignTrailing, false),
-		actionCell,
+		nameWithIcon,
+		container.NewPadded(idLabel),
+		container.NewPadded(diamondLabel),
+		container.NewPadded(versionLabel),
+		container.NewPadded(timeLabel),
+		actionBox,
 	)
 
-	rowBackground := canvas.NewRectangle(palette.RowBackground)
-	rowBackground.CornerRadius = 8
-	rowBackground.StrokeColor = palette.RowBorder
-	rowBackground.StrokeWidth = 1
-
-	rowBody := container.NewBorder(nil, nil, nil, nil, grid)
-	content := container.NewPadded(rowBody)
-	wrapped := container.NewMax(rowBackground, content)
-	return container.NewPadded(wrapped)
+	// 使用卡片样式，跟随主题
+	card := widget.NewCard("", "", grid)
+	return card
 }
 
 func fileExists(path string) bool {
@@ -1626,15 +1640,11 @@ func (ui *FyneUI) fixedSpacer(width float32) fyne.CanvasObject {
 }
 
 func (ui *FyneUI) giftEntryField(entry *widget.Entry, width float32) fyne.CanvasObject {
-	palette := ui.giftPalette()
-	bg := canvas.NewRectangle(palette.EntryBackground)
-	bg.CornerRadius = 6
-	bg.StrokeColor = palette.EntryBorder
-	bg.StrokeWidth = 1
-	padding := container.NewPadded(entry)
-	field := container.NewMax(bg, padding)
-	field.SetMinSize(fyne.NewSize(width, entry.MinSize().Height+12))
-	return field
+	// 移除自定义背景，让 Entry 使用 Fyne 默认主题
+	// 这样可以确保主题切换时 Entry 也会正确响应
+	wrapper := container.NewPadded(entry)
+	wrapper.SetMinSize(fyne.NewSize(width, entry.MinSize().Height))
+	return wrapper
 }
 
 func (ui *FyneUI) giftTableCell(text string, align fyne.TextAlign, bold bool) fyne.CanvasObject {
@@ -1645,14 +1655,11 @@ func (ui *FyneUI) giftTableCell(text string, align fyne.TextAlign, bold bool) fy
 	if bold {
 		lbl.TextStyle = fyne.TextStyle{Bold: true}
 	}
-	switch align {
-	case fyne.TextAlignTrailing:
-		return container.NewHBox(layout.NewSpacer(), lbl)
-	case fyne.TextAlignCenter:
-		return container.NewHBox(layout.NewSpacer(), lbl, layout.NewSpacer())
-	default:
-		return container.NewHBox(lbl, layout.NewSpacer())
-	}
+	
+	// 使用简单的容器包装，确保文本水平显示
+	wrapper := container.NewPadded(lbl)
+	wrapper.Resize(fyne.NewSize(120, lbl.MinSize().Height))
+	return wrapper
 }
 
 func (ui *FyneUI) giftHeaderCell(text string, align fyne.TextAlign) fyne.CanvasObject {
@@ -1672,10 +1679,8 @@ func (ui *FyneUI) giftHeaderCell(text string, align fyne.TextAlign) fyne.CanvasO
 }
 
 func (ui *FyneUI) giftRowDivider() fyne.CanvasObject {
-	palette := ui.giftPalette()
-	line := canvas.NewRectangle(palette.RowDivider)
-	line.SetMinSize(fyne.NewSize(0, 1))
-	return container.NewMax(line)
+	// 使用标准分隔符以跟随主题
+	return widget.NewSeparator()
 }
 
 type giftButton struct {
@@ -1856,21 +1861,26 @@ func (ui *FyneUI) giftRowBorderColor() color.Color {
 func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
 	headers := []string{"名称", "ID", "钻石", "版本号", "更新时间", "操作"}
 	cells := make([]fyne.CanvasObject, 0, len(headers))
+	
+	// 为每个表头创建标签，使用标准 widget 以跟随主题
 	for _, h := range headers {
-		align := fyne.TextAlignCenter
+		lbl := widget.NewLabel(h)
+		lbl.TextStyle = fyne.TextStyle{Bold: true}
+		lbl.Wrapping = fyne.TextWrapOff
+		
 		switch h {
 		case "名称":
-			align = fyne.TextAlignLeading
+			lbl.Alignment = fyne.TextAlignLeading
 		case "版本号", "更新时间":
-			align = fyne.TextAlignTrailing
+			lbl.Alignment = fyne.TextAlignTrailing
+		default:
+			lbl.Alignment = fyne.TextAlignCenter
 		}
-		cells = append(cells, ui.giftHeaderCell(h, align))
+		cells = append(cells, container.NewPadded(lbl))
 	}
+	
 	row := container.New(layout.NewGridLayoutWithColumns(len(headers)), cells...)
-	rowBg := canvas.NewRectangle(ui.giftHeaderBackgroundColor())
-	rowBg.CornerRadius = 8
-	rowBody := container.NewBorder(nil, nil, nil, nil, row)
-	return container.NewMax(rowBg, container.NewPadded(rowBody))
+	return container.NewPadded(row)
 }
 
 func buildGiftWhereClause(filter giftFilter) (string, []interface{}) {
@@ -2216,6 +2226,9 @@ func (ui *FyneUI) applyTheme(themeName string) {
 		ui.app.Settings().SetTheme(NewChineseTheme())
 	}
 	ui.userTheme = themeName
+	
+	// 刷新所有界面组件以响应主题变化
+	ui.refreshAllUIComponents()
 }
 
 // createSettingsTab 创建设置 Tab
@@ -2279,11 +2292,16 @@ func (ui *FyneUI) createSettingsTab() fyne.CanvasObject {
 	themeSelect := widget.NewSelect([]string{"系统默认", "浅色", "深色"}, func(val string) {
 		ui.applyTheme(val)
 		ui.saveThemePreference(val)
+		// 提示用户主题已更改
+		if ui.mainWin != nil {
+			dialog.ShowInformation("主题已更新", "主题设置已保存并应用", ui.mainWin)
+		}
 	})
 	themeSelect.SetSelected(ui.userTheme)
 	themeSection := container.NewVBox(
 		widget.NewLabel("主题设置"),
 		themeSelect,
+		widget.NewLabel("提示：切换主题后界面将自动刷新"),
 	)
 
 	return container.NewVBox(
@@ -3329,6 +3347,38 @@ func (ui *FyneUI) updateOverviewStatus(text string) {
 		return
 	}
 	ui.overviewStatus.SetText(text)
+}
+
+// refreshAllUIComponents 刷新所有UI组件以响应主题变化
+func (ui *FyneUI) refreshAllUIComponents() {
+	if ui.mainWin != nil {
+		// 刷新主窗口内容
+		if ui.tabContainer != nil {
+			ui.tabContainer.Refresh()
+		}
+		
+		// 刷新所有房间Tab
+		for _, roomTab := range ui.roomTabs {
+			if roomTab.GiftTable != nil {
+				roomTab.GiftTable.Refresh()
+			}
+			if roomTab.AnchorTable != nil {
+				roomTab.AnchorTable.Refresh()
+			}
+			if roomTab.SegmentTable != nil {
+				roomTab.SegmentTable.Refresh()
+			}
+			if roomTab.MessagesList != nil {
+				roomTab.MessagesList.Refresh()
+			}
+			if roomTab.SubTabs != nil {
+				roomTab.SubTabs.Refresh()
+			}
+		}
+		
+		// 刷新主窗口
+		ui.mainWin.Content().Refresh()
+	}
 }
 
 // refreshData 刷新数据

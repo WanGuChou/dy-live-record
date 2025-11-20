@@ -11,6 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jwwsjlm/douyinLive v1.3.1
 	github.com/mattn/go-sqlite3 v1.14.18
+	github.com/tidwall/gjson v1.18.0
 	github.com/xuri/excelize/v2 v2.10.0
 	google.golang.org/protobuf v1.36.6
 )
@@ -65,7 +66,6 @@ require (
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tevino/abool v1.2.0 // indirect
-	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tiendc/go-deepcopy v1.7.1 // indirect
