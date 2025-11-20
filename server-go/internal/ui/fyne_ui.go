@@ -24,6 +24,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
@@ -416,6 +417,8 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 	data := ui.loadAllAnchors()
 
 	statusLabel := widget.NewLabel("")
+	statusLabel.Alignment = fyne.TextAlignTrailing
+	statusLabel.Wrapping = fyne.TextWrapOff
 
 	idEntry := widget.NewEntry()
 	idEntry.SetPlaceHolder("主播ID")
@@ -586,6 +589,8 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 
 func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	statusLabel := widget.NewLabel("")
+	statusLabel.Alignment = fyne.TextAlignTrailing
+	statusLabel.Wrapping = fyne.TextWrapOff
 	const defaultPageSize = 10
 	filter := giftFilter{SortAsc: true, Page: 1, PageSize: defaultPageSize}
 
@@ -600,7 +605,8 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	listScroll := container.NewVScroll(listContent)
 
 	pageLabel := widget.NewLabel("")
-	var prevBtn, nextBtn *widget.Button
+	pageLabel.Alignment = fyne.TextAlignCenter
+	var prevBtn, nextBtn *giftButton
 
 	var renderList func()
 	renderList = func() {
@@ -619,7 +625,9 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		records := ui.loadGiftRecords(filter)
 		listContent.Objects = nil
 		if len(records) == 0 {
-			listContent.Add(widget.NewLabel("暂无礼物数据"))
+			empty := widget.NewLabel("暂无礼物数据")
+			empty.Alignment = fyne.TextAlignCenter
+			listContent.Add(container.NewCenter(empty))
 		} else {
 			for idx, rec := range records {
 				record := rec
@@ -644,13 +652,13 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 					})
 				listContent.Add(row)
 				if idx < len(records)-1 {
-					listContent.Add(widget.NewSeparator())
+					listContent.Add(ui.giftRowDivider())
 				}
 			}
 		}
 		listContent.Refresh()
 
-		pageLabel.SetText(fmt.Sprintf("第 %d / %d 页（共 %d 条）", filter.Page, maxPage, total))
+		pageLabel.SetText(fmt.Sprintf("第 %d 页 / 共 %d 页 · 共 %d 条", filter.Page, maxPage, total))
 		if prevBtn != nil {
 			if filter.Page <= 1 {
 				prevBtn.Disable()
@@ -667,8 +675,8 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		}
 	}
 
-	sortBtn := widget.NewButton("钻石排序 ↑", func() {})
-	sortBtn.OnTapped = func() {
+	sortBtn := ui.newGiftButton("钻石排序 ↑", 120, nil)
+	sortBtn.onTapped = func() {
 		filter.SortAsc = !filter.SortAsc
 		if filter.SortAsc {
 			sortBtn.SetText("钻石排序 ↑")
@@ -678,14 +686,14 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		renderList()
 	}
 
-	searchBtn := widget.NewButton("查询", func() {
+	searchBtn := ui.newGiftButton("查询", 96, func() {
 		filter.Name = strings.TrimSpace(nameFilter.Text)
 		filter.DiamondMin = parseTextInt(minDiamondEntry.Text)
 		filter.DiamondMax = parseTextInt(maxDiamondEntry.Text)
 		filter.Page = 1
 		renderList()
 	})
-	resetBtn := widget.NewButton("重置", func() {
+	resetBtn := ui.newGiftButton("重置", 96, func() {
 		nameFilter.SetText("")
 		minDiamondEntry.SetText("")
 		maxDiamondEntry.SetText("")
@@ -694,15 +702,15 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		renderList()
 	})
 
-	addBtn := widget.NewButton("新增礼物", func() {
+	addBtn := ui.newGiftButton("新增礼物", 110, func() {
 		ui.showGiftEditor(nil, func() {
 			statusLabel.SetText("已添加礼物")
 			renderList()
 		})
 	})
 
-	var latestBtn *widget.Button
-	latestBtn = widget.NewButton("更新最新礼物列表", func() {
+	var latestBtn *giftButton
+	latestBtn = ui.newGiftButton("更新最新礼物列表", 160, func() {
 		if ui.db == nil {
 			statusLabel.SetText("数据库未初始化")
 			return
@@ -726,46 +734,58 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	makeFilterField := func(label string, entry *widget.Entry) fyne.CanvasObject {
 		lbl := widget.NewLabel(label + ":")
 		lbl.Alignment = fyne.TextAlignTrailing
-		entryContainer := container.New(layout.NewGridWrapLayout(fyne.NewSize(140, entry.MinSize().Height)), entry)
-		return container.NewHBox(lbl, entryContainer)
+		field := ui.giftEntryField(entry, 150)
+		return container.NewHBox(lbl, ui.fixedSpacer(8), field)
 	}
 
 	filterBar := container.NewHBox(
 		makeFilterField("名称", nameFilter),
+		ui.fixedSpacer(16),
 		makeFilterField("最小钻石", minDiamondEntry),
+		ui.fixedSpacer(16),
 		makeFilterField("最大钻石", maxDiamondEntry),
 		layout.NewSpacer(),
 	)
 
-	prevBtn = widget.NewButton("上一页", func() {
+	prevBtn = ui.newGiftButton("上一页", 100, func() {
 		if filter.Page > 1 {
 			filter.Page--
 			renderList()
 		}
 	})
-	nextBtn = widget.NewButton("下一页", func() {
+	nextBtn = ui.newGiftButton("下一页", 100, func() {
 		filter.Page++
 		renderList()
 	})
 
 	buttonRow := container.NewHBox(
 		searchBtn,
+		ui.fixedSpacer(8),
 		resetBtn,
+		ui.fixedSpacer(8),
 		addBtn,
+		ui.fixedSpacer(8),
 		latestBtn,
+		ui.fixedSpacer(8),
 		sortBtn,
 		layout.NewSpacer(),
 		statusLabel,
 	)
 
-	paginationBar := container.NewHBox(prevBtn, nextBtn, pageLabel)
+	paginationButtons := container.NewCenter(container.NewHBox(prevBtn, ui.fixedSpacer(12), nextBtn))
+	paginationBar := container.NewVBox(
+		paginationButtons,
+		ui.fixedSpacer(8),
+		container.NewCenter(pageLabel),
+	)
 
 	renderList()
 
 	headerRow := ui.buildGiftHeaderRow()
 	listBackground := canvas.NewRectangle(ui.giftListBackgroundColor())
 	listBackground.CornerRadius = 12
-	listWrapper := container.NewBorder(headerRow, nil, nil, nil, listScroll)
+	bodyContent := container.NewVBox(ui.giftRowDivider(), listScroll)
+	listWrapper := container.NewBorder(headerRow, nil, nil, nil, bodyContent)
 	listArea := container.NewMax(listBackground, container.NewPadded(listWrapper))
 
 	topSection := container.NewVBox(filterBar, buttonRow, widget.NewSeparator())
@@ -1465,47 +1485,51 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 }
 
 func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted func()) fyne.CanvasObject {
+	palette := ui.giftPalette()
 	icon := canvas.NewImageFromResource(theme.DocumentIcon())
 	if fileExists(rec.IconLocal) {
 		icon = canvas.NewImageFromFile(rec.IconLocal)
 	}
 	icon.SetMinSize(fyne.NewSize(32, 32))
 	icon.FillMode = canvas.ImageFillContain
+	iconWrapper := container.New(layout.NewGridWrapLayout(fyne.NewSize(32, 32)), icon)
 
 	name := widget.NewLabel(rec.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	name.Wrapping = fyne.TextWrapOff
 	name.Truncation = fyne.TextTruncateEllipsis
-	nameContainer := container.NewBorder(nil, nil, icon, nil, name)
+	name.Alignment = fyne.TextAlignLeading
+	nameRow := container.NewHBox(iconWrapper, ui.fixedSpacer(8), name, layout.NewSpacer())
 
-	editBtn := widget.NewButton("编辑", func() {
+	editBtn := ui.newGiftButton("编辑", 60, func() {
 		if onEdit != nil {
 			onEdit()
 		}
 	})
-	toggleLabel := "删除"
+	deleteLabel := "删除"
 	if rec.IsDeleted {
-		toggleLabel = "恢复"
+		deleteLabel = "恢复"
 	}
-	deleteBtn := widget.NewButton(toggleLabel, func() {
+	deleteBtn := ui.newGiftButton(deleteLabel, 60, func() {
 		if onToggleDeleted != nil {
 			onToggleDeleted()
 		}
 	})
-	actionBox := container.NewHBox(editBtn, deleteBtn)
+	actionBox := container.NewHBox(editBtn, ui.fixedSpacer(8), deleteBtn)
+	actionCell := container.NewHBox(layout.NewSpacer(), actionBox)
 
 	grid := container.New(layout.NewGridLayoutWithColumns(6),
-		nameContainer,
-		centeredLabel(rec.GiftID),
-		centeredLabel(fmt.Sprintf("%d", rec.DiamondValue)),
-		centeredLabel(rec.Version),
-		centeredLabel(formatDisplayTime(rec.CreatedAt)),
-		container.NewCenter(actionBox),
+		nameRow,
+		ui.giftTableCell(rec.GiftID, fyne.TextAlignCenter, false),
+		ui.giftTableCell(fmt.Sprintf("%d", rec.DiamondValue), fyne.TextAlignCenter, false),
+		ui.giftTableCell(rec.Version, fyne.TextAlignTrailing, false),
+		ui.giftTableCell(formatDisplayTime(rec.CreatedAt), fyne.TextAlignTrailing, false),
+		actionCell,
 	)
 
-	rowBackground := canvas.NewRectangle(ui.giftRowBackgroundColor())
+	rowBackground := canvas.NewRectangle(palette.RowBackground)
 	rowBackground.CornerRadius = 8
-	rowBackground.StrokeColor = ui.giftRowBorderColor()
+	rowBackground.StrokeColor = palette.RowBorder
 	rowBackground.StrokeWidth = 1
 
 	rowBody := container.NewBorder(nil, nil, nil, nil, grid)
@@ -1532,13 +1556,275 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-func centeredLabel(text string) fyne.CanvasObject {
+type giftPalette struct {
+	Text             color.Color
+	MutedText        color.Color
+	ListBackground   color.Color
+	HeaderBackground color.Color
+	HeaderText       color.Color
+	RowBackground    color.Color
+	RowBorder        color.Color
+	RowDivider       color.Color
+	EntryBackground  color.Color
+	EntryBorder      color.Color
+	ButtonBackground color.Color
+	ButtonHover      color.Color
+	ButtonText       color.Color
+	ButtonBorder     color.Color
+	PagerBackground  color.Color
+	PagerHover       color.Color
+	PagerText        color.Color
+}
+
+func (ui *FyneUI) giftPalette() giftPalette {
+	if ui.isDarkThemeVariant() {
+		return giftPalette{
+			Text:             color.NRGBA{R: 0xE0, G: 0xE0, B: 0xE0, A: 0xFF},
+			MutedText:        color.NRGBA{R: 0xB5, G: 0xB5, B: 0xB5, A: 0xFF},
+			ListBackground:   color.NRGBA{R: 0x22, G: 0x24, B: 0x2A, A: 0xFF},
+			HeaderBackground: color.NRGBA{R: 0x1A, G: 0x1A, B: 0x1A, A: 0xFF},
+			HeaderText:       color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF},
+			RowBackground:    color.NRGBA{R: 0x2C, G: 0x2E, B: 0x36, A: 0xFF},
+			RowBorder:        color.NRGBA{R: 0x46, G: 0x4B, B: 0x55, A: 0xFF},
+			RowDivider:       color.NRGBA{R: 0x2A, G: 0x2A, B: 0x2A, A: 0xFF},
+			EntryBackground:  color.NRGBA{R: 0x2D, G: 0x2D, B: 0x2D, A: 0xFF},
+			EntryBorder:      color.NRGBA{R: 0x44, G: 0x44, B: 0x44, A: 0xFF},
+			ButtonBackground: color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF},
+			ButtonHover:      color.NRGBA{R: 0x4A, G: 0x4A, B: 0x4A, A: 0xFF},
+			ButtonText:       color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF},
+			ButtonBorder:     color.NRGBA{R: 0x44, G: 0x44, B: 0x44, A: 0xFF},
+			PagerBackground:  color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF},
+			PagerHover:       color.NRGBA{R: 0x4A, G: 0x4A, B: 0x4A, A: 0xFF},
+			PagerText:        color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF},
+		}
+	}
+	return giftPalette{
+		Text:             color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF},
+		MutedText:        color.NRGBA{R: 0x55, G: 0x55, B: 0x55, A: 0xFF},
+		ListBackground:   color.NRGBA{R: 0xF7, G: 0xF8, B: 0xFC, A: 0xFF},
+		HeaderBackground: color.NRGBA{R: 0xEE, G: 0xEE, B: 0xEE, A: 0xFF},
+		HeaderText:       color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF},
+		RowBackground:    color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF},
+		RowBorder:        color.NRGBA{R: 0xDD, G: 0xDD, B: 0xDD, A: 0xFF},
+		RowDivider:       color.NRGBA{R: 0xCC, G: 0xCC, B: 0xCC, A: 0xFF},
+		EntryBackground:  color.NRGBA{R: 0xF5, G: 0xF5, B: 0xF5, A: 0xFF},
+		EntryBorder:      color.NRGBA{R: 0xDD, G: 0xDD, B: 0xDD, A: 0xFF},
+		ButtonBackground: color.NRGBA{R: 0xF0, G: 0xF0, B: 0xF0, A: 0xFF},
+		ButtonHover:      color.NRGBA{R: 0xE0, G: 0xE0, B: 0xE0, A: 0xFF},
+		ButtonText:       color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF},
+		ButtonBorder:     color.NRGBA{R: 0xCC, G: 0xCC, B: 0xCC, A: 0xFF},
+		PagerBackground:  color.NRGBA{R: 0xF0, G: 0xF0, B: 0xF0, A: 0xFF},
+		PagerHover:       color.NRGBA{R: 0xE0, G: 0xE0, B: 0xE0, A: 0xFF},
+		PagerText:        color.NRGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xFF},
+	}
+}
+
+func (ui *FyneUI) fixedSpacer(width float32) fyne.CanvasObject {
+	rect := canvas.NewRectangle(color.NRGBA{A: 0})
+	rect.SetMinSize(fyne.NewSize(width, 1))
+	return rect
+}
+
+func (ui *FyneUI) giftEntryField(entry *widget.Entry, width float32) fyne.CanvasObject {
+	palette := ui.giftPalette()
+	bg := canvas.NewRectangle(palette.EntryBackground)
+	bg.CornerRadius = 6
+	bg.StrokeColor = palette.EntryBorder
+	bg.StrokeWidth = 1
+	padding := container.NewPadded(entry)
+	field := container.NewMax(bg, padding)
+	field.SetMinSize(fyne.NewSize(width, entry.MinSize().Height+12))
+	return field
+}
+
+func (ui *FyneUI) giftTableCell(text string, align fyne.TextAlign, bold bool) fyne.CanvasObject {
 	lbl := widget.NewLabel(text)
-	lbl.Alignment = fyne.TextAlignCenter
+	lbl.Alignment = align
 	lbl.Wrapping = fyne.TextWrapOff
 	lbl.Truncation = fyne.TextTruncateEllipsis
-	return container.NewCenter(lbl)
+	if bold {
+		lbl.TextStyle = fyne.TextStyle{Bold: true}
+	}
+	switch align {
+	case fyne.TextAlignTrailing:
+		return container.NewHBox(layout.NewSpacer(), lbl)
+	case fyne.TextAlignCenter:
+		return container.NewHBox(layout.NewSpacer(), lbl, layout.NewSpacer())
+	default:
+		return container.NewHBox(lbl, layout.NewSpacer())
+	}
 }
+
+func (ui *FyneUI) giftHeaderCell(text string, align fyne.TextAlign) fyne.CanvasObject {
+	palette := ui.giftPalette()
+	lbl := canvas.NewText(text, palette.HeaderText)
+	lbl.TextStyle = fyne.TextStyle{Bold: true}
+	lbl.Alignment = align
+	lbl.TextSize = theme.TextSize()
+	switch align {
+	case fyne.TextAlignTrailing:
+		return container.NewHBox(layout.NewSpacer(), lbl)
+	case fyne.TextAlignCenter:
+		return container.NewHBox(layout.NewSpacer(), lbl, layout.NewSpacer())
+	default:
+		return container.NewHBox(lbl, layout.NewSpacer())
+	}
+}
+
+func (ui *FyneUI) giftRowDivider() fyne.CanvasObject {
+	palette := ui.giftPalette()
+	line := canvas.NewRectangle(palette.RowDivider)
+	line.SetMinSize(fyne.NewSize(0, 1))
+	return container.NewMax(line)
+}
+
+type giftButton struct {
+	widget.BaseWidget
+	ui       *FyneUI
+	text     string
+	minWidth float32
+	onTapped func()
+	hover    bool
+}
+
+func (ui *FyneUI) newGiftButton(text string, minWidth float32, tapped func()) *giftButton {
+	btn := &giftButton{
+		ui:       ui,
+		text:     text,
+		minWidth: minWidth,
+		onTapped: tapped,
+	}
+	if btn.minWidth <= 0 {
+		btn.minWidth = 96
+	}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func (b *giftButton) SetText(text string) {
+	if b.text == text {
+		return
+	}
+	b.text = text
+	b.Refresh()
+}
+
+func (b *giftButton) SetMinWidth(width float32) {
+	if width <= 0 {
+		width = 60
+	}
+	b.minWidth = width
+	b.Refresh()
+}
+
+func (b *giftButton) Disable() {
+	b.BaseWidget.Disable()
+	b.hover = false
+	b.Refresh()
+}
+
+func (b *giftButton) Enable() {
+	b.BaseWidget.Enable()
+	b.Refresh()
+}
+
+func (b *giftButton) MinSize() fyne.Size {
+	height := float32(36)
+	width := b.minWidth
+	if width < 60 {
+		width = 60
+	}
+	return fyne.NewSize(width, height)
+}
+
+func (b *giftButton) Tapped(*fyne.PointEvent) {
+	if b.Disabled() {
+		return
+	}
+	if b.onTapped != nil {
+		b.onTapped()
+	}
+}
+
+func (b *giftButton) MouseIn(*desktop.MouseEvent) {
+	if b.Disabled() {
+		return
+	}
+	b.hover = true
+	b.Refresh()
+}
+
+func (b *giftButton) MouseMoved(*desktop.MouseEvent) {}
+
+func (b *giftButton) MouseOut(*desktop.MouseEvent) {
+	if b.hover {
+		b.hover = false
+		b.Refresh()
+	}
+}
+
+func (b *giftButton) CreateRenderer() fyne.WidgetRenderer {
+	palette := b.ui.giftPalette()
+	bg := canvas.NewRectangle(palette.ButtonBackground)
+	bg.CornerRadius = 8
+	bg.StrokeWidth = 1
+	bg.StrokeColor = palette.ButtonBorder
+
+	label := canvas.NewText(b.text, palette.ButtonText)
+	label.Alignment = fyne.TextAlignCenter
+	label.TextSize = theme.TextSize()
+
+	content := container.NewCenter(label)
+
+	return &giftButtonRenderer{
+		button:     b,
+		background: bg,
+		label:      label,
+		content:    content,
+	}
+}
+
+type giftButtonRenderer struct {
+	button     *giftButton
+	background *canvas.Rectangle
+	label      *canvas.Text
+	content    *fyne.Container
+}
+
+func (r *giftButtonRenderer) Layout(size fyne.Size) {
+	r.background.Resize(size)
+	r.content.Resize(size)
+}
+
+func (r *giftButtonRenderer) MinSize() fyne.Size {
+	return r.button.MinSize()
+}
+
+func (r *giftButtonRenderer) Refresh() {
+	palette := r.button.ui.giftPalette()
+	bgColor := palette.ButtonBackground
+	if r.button.Disabled() {
+		bgColor = palette.ButtonBackground
+	} else if r.button.hover {
+		bgColor = palette.ButtonHover
+	}
+	r.background.FillColor = bgColor
+	r.background.StrokeColor = palette.ButtonBorder
+	textColor := palette.ButtonText
+	if r.button.Disabled() {
+		textColor = palette.MutedText
+	}
+	r.label.Text = r.button.text
+	r.label.Color = textColor
+	canvas.Refresh(r.background)
+	canvas.Refresh(r.label)
+}
+
+func (r *giftButtonRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.background, r.content}
+}
+
+func (r *giftButtonRenderer) Destroy() {}
 
 func (ui *FyneUI) isDarkThemeVariant() bool {
 	if ui.app == nil {
@@ -1552,40 +1838,33 @@ func (ui *FyneUI) isDarkThemeVariant() bool {
 }
 
 func (ui *FyneUI) giftListBackgroundColor() color.Color {
-	if ui.isDarkThemeVariant() {
-		return color.NRGBA{R: 34, G: 36, B: 42, A: 255}
-	}
-	return color.NRGBA{R: 247, G: 248, B: 252, A: 255}
+	return ui.giftPalette().ListBackground
 }
 
 func (ui *FyneUI) giftHeaderBackgroundColor() color.Color {
-	if ui.isDarkThemeVariant() {
-		return color.NRGBA{R: 55, G: 60, B: 70, A: 255}
-	}
-	return color.NRGBA{R: 230, G: 236, B: 250, A: 255}
+	return ui.giftPalette().HeaderBackground
 }
 
 func (ui *FyneUI) giftRowBackgroundColor() color.Color {
-	if ui.isDarkThemeVariant() {
-		return color.NRGBA{R: 44, G: 46, B: 54, A: 255}
-	}
-	return color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	return ui.giftPalette().RowBackground
 }
 
 func (ui *FyneUI) giftRowBorderColor() color.Color {
-	if ui.isDarkThemeVariant() {
-		return color.NRGBA{R: 70, G: 75, B: 85, A: 255}
-	}
-	return color.NRGBA{R: 217, G: 221, B: 231, A: 255}
+	return ui.giftPalette().RowBorder
 }
 
 func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
 	headers := []string{"名称", "ID", "钻石", "版本号", "更新时间", "操作"}
 	cells := make([]fyne.CanvasObject, 0, len(headers))
 	for _, h := range headers {
-		lbl := widget.NewLabelWithStyle(h, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-		lbl.Wrapping = fyne.TextWrapOff
-		cells = append(cells, container.NewCenter(lbl))
+		align := fyne.TextAlignCenter
+		switch h {
+		case "名称":
+			align = fyne.TextAlignLeading
+		case "版本号", "更新时间":
+			align = fyne.TextAlignTrailing
+		}
+		cells = append(cells, ui.giftHeaderCell(h, align))
 	}
 	row := container.New(layout.NewGridLayoutWithColumns(len(headers)), cells...)
 	rowBg := canvas.NewRectangle(ui.giftHeaderBackgroundColor())
