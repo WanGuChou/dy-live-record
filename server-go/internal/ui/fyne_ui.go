@@ -765,7 +765,7 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	headerRow := ui.buildGiftHeaderRow()
 	listBackground := canvas.NewRectangle(ui.giftListBackgroundColor())
 	listBackground.CornerRadius = 12
-	listWrapper := container.NewVBox(headerRow, listScroll)
+	listWrapper := container.NewBorder(headerRow, nil, nil, nil, listScroll)
 	listArea := container.NewMax(listBackground, container.NewPadded(listWrapper))
 
 	topSection := container.NewVBox(filterBar, buttonRow, widget.NewSeparator())
@@ -1476,7 +1476,7 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	name.Wrapping = fyne.TextWrapOff
 	name.Truncation = fyne.TextTruncateEllipsis
-	nameCell := container.NewHBox(icon, container.NewPadded(container.NewVBox(name)))
+	nameContainer := container.NewBorder(nil, nil, icon, nil, name)
 
 	editBtn := widget.NewButton("编辑", func() {
 		if onEdit != nil {
@@ -1494,8 +1494,8 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	})
 	actionBox := container.NewHBox(editBtn, deleteBtn)
 
-	grid := container.NewGridWithColumns(6,
-		nameCell,
+	grid := container.New(layout.NewGridLayoutWithColumns(6),
+		nameContainer,
 		centeredLabel(rec.GiftID),
 		centeredLabel(fmt.Sprintf("%d", rec.DiamondValue)),
 		centeredLabel(rec.Version),
@@ -1508,7 +1508,8 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	rowBackground.StrokeColor = ui.giftRowBorderColor()
 	rowBackground.StrokeWidth = 1
 
-	content := container.NewPadded(grid)
+	rowBody := container.NewBorder(nil, nil, nil, nil, grid)
+	content := container.NewPadded(rowBody)
 	wrapped := container.NewMax(rowBackground, content)
 	return container.NewPadded(wrapped)
 }
@@ -1586,10 +1587,11 @@ func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
 		lbl.Wrapping = fyne.TextWrapOff
 		cells = append(cells, container.NewCenter(lbl))
 	}
-	row := container.NewGridWithColumns(len(headers), cells...)
+	row := container.New(layout.NewGridLayoutWithColumns(len(headers)), cells...)
 	rowBg := canvas.NewRectangle(ui.giftHeaderBackgroundColor())
 	rowBg.CornerRadius = 8
-	return container.NewMax(rowBg, container.NewPadded(row))
+	rowBody := container.NewBorder(nil, nil, nil, nil, row)
+	return container.NewMax(rowBg, container.NewPadded(rowBody))
 }
 
 func buildGiftWhereClause(filter giftFilter) (string, []interface{}) {
