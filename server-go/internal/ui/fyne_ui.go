@@ -1480,48 +1480,49 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 }
 
 func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted func()) fyne.CanvasObject {
-	// 图标
+	// 1. ID列 - 居中显示
+	idLabel := widget.NewLabel(rec.GiftID)
+	idLabel.Alignment = fyne.TextAlignCenter
+	idLabel.Wrapping = fyne.TextWrapOff
+	idCell := container.NewCenter(idLabel)
+	
+	// 2. 名称列 - 左对齐，加粗
+	nameLabel := widget.NewLabel(rec.Name)
+	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
+	nameLabel.Wrapping = fyne.TextWrapOff
+	nameLabel.Truncation = fyne.TextTruncateEllipsis
+	nameLabel.Alignment = fyne.TextAlignLeading
+	nameCell := container.NewPadded(nameLabel)
+	
+	// 3. 图标列 - 居中显示
 	icon := canvas.NewImageFromResource(theme.DocumentIcon())
 	if fileExists(rec.IconLocal) {
 		icon = canvas.NewImageFromFile(rec.IconLocal)
 	}
 	icon.SetMinSize(fyne.NewSize(32, 32))
 	icon.FillMode = canvas.ImageFillContain
-
-	// 礼物名称（加粗）- 只显示名称，不显示ID
-	name := widget.NewLabel(rec.Name)
-	name.TextStyle = fyne.TextStyle{Bold: true}
-	name.Wrapping = fyne.TextWrapOff
-	name.Truncation = fyne.TextTruncateEllipsis
-	// 名称列：图标在左，名称在右，使用 HBox 确保横向排列
-	nameWithIcon := container.NewHBox(icon, name)
-
-	// ID - 使用 Center 容器确保水平居中显示
-	idLabel := widget.NewLabel(rec.GiftID)
-	idLabel.Alignment = fyne.TextAlignCenter
-	idLabel.Wrapping = fyne.TextWrapOff
-	idCell := container.NewCenter(idLabel)
+	iconCell := container.NewCenter(icon)
 	
-	// 钻石数 - 使用 Center 容器确保水平居中显示
+	// 4. 钻石数列 - 居中显示
 	diamondLabel := widget.NewLabel(fmt.Sprintf("%d", rec.DiamondValue))
 	diamondLabel.Alignment = fyne.TextAlignCenter
 	diamondLabel.Wrapping = fyne.TextWrapOff
 	diamondCell := container.NewCenter(diamondLabel)
 	
-	// 版本号 - 使用 Center 容器确保水平居中显示
+	// 5. 版本号列 - 居中显示
 	versionLabel := widget.NewLabel(rec.Version)
 	versionLabel.Alignment = fyne.TextAlignCenter
 	versionLabel.Wrapping = fyne.TextWrapOff
 	versionLabel.Truncation = fyne.TextTruncateEllipsis
 	versionCell := container.NewCenter(versionLabel)
 	
-	// 更新时间 - 使用 Center 容器确保水平居中显示
+	// 6. 更新时间列 - 右对齐
 	timeLabel := widget.NewLabel(formatDisplayTime(rec.UpdatedAt))
-	timeLabel.Alignment = fyne.TextAlignCenter
+	timeLabel.Alignment = fyne.TextAlignTrailing
 	timeLabel.Wrapping = fyne.TextWrapOff
-	timeCell := container.NewCenter(timeLabel)
+	timeCell := container.NewPadded(timeLabel)
 
-	// 操作按钮
+	// 7. 操作列 - 按钮横向排列
 	editBtn := widget.NewButton("编辑", func() {
 		if onEdit != nil {
 			onEdit()
@@ -1542,10 +1543,11 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	
 	actionBox := container.NewHBox(editBtn, deleteBtn)
 
-	// 使用网格布局，6列 - 每列都使用确保水平显示的容器
-	grid := container.New(layout.NewGridLayoutWithColumns(6),
-		nameWithIcon,
+	// 使用网格布局，7列：ID、名称、图标、钻石、版本号、更新时间、操作
+	grid := container.New(layout.NewGridLayoutWithColumns(7),
 		idCell,
+		nameCell,
+		iconCell,
 		diamondCell,
 		versionCell,
 		timeCell,
@@ -1864,7 +1866,8 @@ func (ui *FyneUI) giftRowBorderColor() color.Color {
 }
 
 func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
-	headers := []string{"名称", "ID", "钻石", "版本号", "更新时间", "操作"}
+	// 7列：ID、名称、图标、钻石、版本号、更新时间、操作
+	headers := []string{"ID", "名称", "图标", "钻石", "版本号", "更新时间", "操作"}
 	cells := make([]fyne.CanvasObject, 0, len(headers))
 	
 	// 为每个表头创建标签，使用标准 widget 以跟随主题
