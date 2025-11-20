@@ -598,7 +598,7 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 
 	listContent := container.NewVBox()
 	listScroll := container.NewVScroll(listContent)
-	listScroll.SetMinSize(fyne.NewSize(600, 420))
+	listScroll.SetMinSize(fyne.NewSize(600, 400))
 
 	pageLabel := widget.NewLabel("")
 	var prevBtn, nextBtn *widget.Button
@@ -724,12 +724,11 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		}()
 	})
 
-	filterBar := container.NewGridWithColumns(5,
+	filterBar := container.NewHBox(
 		container.NewVBox(widget.NewLabel("名称"), nameFilter),
 		container.NewVBox(widget.NewLabel("最小钻石"), minDiamondEntry),
 		container.NewVBox(widget.NewLabel("最大钻石"), maxDiamondEntry),
-		searchBtn,
-		resetBtn,
+		layout.NewSpacer(),
 	)
 
 	prevBtn = widget.NewButton("上一页", func() {
@@ -743,19 +742,33 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		renderList()
 	})
 
-	actionBar := container.NewVBox(
-		container.NewHBox(addBtn, latestBtn, sortBtn, layout.NewSpacer(), statusLabel),
-		filterBar,
+	buttonRow := container.NewHBox(
+		searchBtn,
+		resetBtn,
+		addBtn,
+		latestBtn,
+		sortBtn,
+		layout.NewSpacer(),
+		statusLabel,
 	)
 
 	paginationBar := container.NewHBox(prevBtn, nextBtn, pageLabel)
 
 	renderList()
 
-	cardContent := container.NewBorder(actionBar, paginationBar, nil, nil, listScroll)
-	card := widget.NewCard("礼物管理", "", cardContent)
+	headerRow := ui.buildGiftHeaderRow()
+	listWrapper := container.NewVBox(headerRow, listScroll)
 
-	return container.NewPadded(card)
+	cardContent := container.NewVBox(
+		filterBar,
+		buttonRow,
+		widget.NewSeparator(),
+		listWrapper,
+		paginationBar,
+	)
+	card := widget.NewCard("礼物管理", "", container.NewPadded(cardContent))
+
+	return container.NewBorder(nil, nil, nil, nil, card)
 }
 
 func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
@@ -1431,49 +1444,48 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	if fileExists(rec.IconLocal) {
 		icon = canvas.NewImageFromFile(rec.IconLocal)
 	}
-	icon.SetMinSize(fyne.NewSize(64, 64))
+	icon.SetMinSize(fyne.NewSize(48, 48))
 	icon.FillMode = canvas.ImageFillContain
 
-	name := widget.NewLabel(fmt.Sprintf("%s (%s)", rec.Name, rec.GiftID))
+	name := widget.NewLabel(rec.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
-	created := rec.CreatedAt
-	if created.IsZero() {
-		created = rec.UpdatedAt
-	}
-	meta := widget.NewLabel(fmt.Sprintf("💎 %d | 版本: %s | 创建: %s", rec.DiamondValue, rec.Version, formatDisplayTime(created)))
-	status := widget.NewLabel("状态: 正常")
-	if rec.IsDeleted {
-		status.SetText("状态: 已删除")
-	}
+	detail := widget.NewLabel(fmt.Sprintf("ID: %s", rec.GiftID))
+	nameCol := container.NewHBox(icon, container.NewVBox(name, detail))
+
+	diamondLabel := widget.NewLabel(fmt.Sprintf("%d", rec.DiamondValue))
+	versionLabel := widget.NewLabel(rec.Version)
+	timeLabel := widget.NewLabel(formatDisplayTime(rec.CreatedAt))
 
 	editBtn := widget.NewButton("编辑", func() {
 		if onEdit != nil {
 			onEdit()
 		}
 	})
-	deleteLabel := "删除"
+	toggleLabel := "删除"
 	if rec.IsDeleted {
-		deleteLabel = "恢复"
+		toggleLabel = "恢复"
 	}
-	deleteBtn := widget.NewButton(deleteLabel, func() {
+	deleteBtn := widget.NewButton(toggleLabel, func() {
 		if onToggleDeleted != nil {
 			onToggleDeleted()
 		}
 	})
+	actionBox := container.NewHBox(editBtn, deleteBtn)
+
+	row := container.NewGridWithColumns(6,
+		container.NewPadded(nameCol),
+		centeredLabel(rec.GiftID),
+		centeredLabel(fmt.Sprintf("%d", rec.DiamondValue)),
+		centeredLabel(rec.Version),
+		centeredLabel(formatDisplayTime(rec.CreatedAt)),
+		container.NewCenter(actionBox),
+	)
 
 	rowBackground := canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
-	rowBackground.StrokeColor = color.NRGBA{R: 225, G: 229, B: 236, A: 255}
+	rowBackground.StrokeColor = color.NRGBA{R: 230, G: 234, B: 240, A: 255}
 	rowBackground.StrokeWidth = 1
 
-	iconBox := container.New(layout.NewCenterLayout(), icon)
-	iconWrapper := container.New(layout.NewGridWrapLayout(fyne.NewSize(80, 80)), iconBox)
-	info := container.NewVBox(name, meta, status)
-	buttons := container.NewVBox(editBtn, deleteBtn)
-
-	content := container.NewBorder(nil, nil, iconWrapper, buttons, info)
-	content = container.NewPadded(content)
-
-	return container.NewMax(rowBackground, content)
+	return container.NewMax(rowBackground, container.NewPadded(row))
 }
 
 func fileExists(path string) bool {
@@ -1492,6 +1504,25 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func centeredLabel(text string) fyne.CanvasObject {
+	lbl := widget.NewLabel(text)
+	lbl.Alignment = fyne.TextAlignCenter
+	lbl.Wrapping = fyne.TextWrapWord
+	return container.NewCenter(lbl)
+}
+
+func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
+	headers := []string{"名称", "ID", "钻石", "版本号", "更新时间", "操作"}
+	cells := make([]fyne.CanvasObject, 0, len(headers))
+	for _, h := range headers {
+		lbl := widget.NewLabelWithStyle(h, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+		cells = append(cells, container.NewCenter(lbl))
+	}
+	row := container.NewGridWithColumns(len(headers), cells...)
+	rowBg := canvas.NewRectangle(color.NRGBA{R: 230, G: 234, B: 240, A: 255})
+	return container.NewMax(rowBg, container.NewPadded(row))
 }
 
 func buildGiftWhereClause(filter giftFilter) (string, []interface{}) {
