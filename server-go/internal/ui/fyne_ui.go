@@ -606,7 +606,7 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 
 	pageLabel := widget.NewLabel("")
 	pageLabel.Alignment = fyne.TextAlignCenter
-	var prevBtn, nextBtn *giftButton
+	var prevBtn, nextBtn *widget.Button
 
 	var renderList func()
 	renderList = func() {
@@ -1649,8 +1649,8 @@ func (ui *FyneUI) fixedSpacer(width float32) fyne.CanvasObject {
 func (ui *FyneUI) giftEntryField(entry *widget.Entry, width float32) fyne.CanvasObject {
 	// 移除自定义背景，让 Entry 使用 Fyne 默认主题
 	// 这样可以确保主题切换时 Entry 也会正确响应
+	// 注意：Container 没有 SetMinSize 方法，直接返回包装后的 entry
 	wrapper := container.NewPadded(entry)
-	wrapper.SetMinSize(fyne.NewSize(width, entry.MinSize().Height))
 	return wrapper
 }
 
@@ -1664,9 +1664,7 @@ func (ui *FyneUI) giftTableCell(text string, align fyne.TextAlign, bold bool) fy
 	}
 	
 	// 使用简单的容器包装，确保文本水平显示
-	wrapper := container.NewPadded(lbl)
-	wrapper.Resize(fyne.NewSize(120, lbl.MinSize().Height))
-	return wrapper
+	return container.NewPadded(lbl)
 }
 
 func (ui *FyneUI) giftHeaderCell(text string, align fyne.TextAlign) fyne.CanvasObject {
@@ -1697,6 +1695,7 @@ type giftButton struct {
 	minWidth float32
 	onTapped func()
 	hover    bool
+	disabled bool
 }
 
 func (ui *FyneUI) newGiftButton(text string, minWidth float32, tapped func()) *giftButton {
@@ -1730,14 +1729,18 @@ func (b *giftButton) SetMinWidth(width float32) {
 }
 
 func (b *giftButton) Disable() {
-	b.BaseWidget.Disable()
+	b.disabled = true
 	b.hover = false
 	b.Refresh()
 }
 
 func (b *giftButton) Enable() {
-	b.BaseWidget.Enable()
+	b.disabled = false
 	b.Refresh()
+}
+
+func (b *giftButton) Disabled() bool {
+	return b.disabled
 }
 
 func (b *giftButton) MinSize() fyne.Size {
