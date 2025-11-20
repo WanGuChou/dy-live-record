@@ -804,14 +804,26 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	renderList()
 
 	headerRow := ui.buildGiftHeaderRow()
-	// 移除自定义背景，使用标准容器以跟随主题
-	listWrapper := container.NewBorder(headerRow, nil, nil, nil, 
-		container.NewVBox(widget.NewSeparator(), listScroll))
+	
+	// 列表区域 - 表头 + 分隔符 + 滚动列表
+	listArea := container.NewBorder(
+		container.NewVBox(headerRow, widget.NewSeparator()), // 顶部：表头
+		nil, nil, nil,
+		listScroll, // 中间：滚动列表自动扩展
+	)
 
+	// 顶部区域
 	topSection := container.NewVBox(filterBar, buttonRow, widget.NewSeparator())
-	mainContent := container.NewBorder(topSection, paginationBar, nil, nil, listWrapper)
+	
+	// 主布局：顶部固定，底部固定，中间列表自动扩展
+	mainContent := container.NewBorder(
+		topSection,      // 顶部：筛选 + 按钮
+		paginationBar,   // 底部：分页控件
+		nil, nil,
+		listArea,        // 中间：列表区域自动扩展填充
+	)
 
-	return container.NewPadded(mainContent)
+	return mainContent
 }
 
 func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
