@@ -1488,33 +1488,38 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	icon.SetMinSize(fyne.NewSize(32, 32))
 	icon.FillMode = canvas.ImageFillContain
 
-	// 礼物名称（加粗）
+	// 礼物名称（加粗）- 只显示名称，不显示ID
 	name := widget.NewLabel(rec.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	name.Wrapping = fyne.TextWrapOff
 	name.Truncation = fyne.TextTruncateEllipsis
-	nameWithIcon := container.NewBorder(nil, nil, icon, nil, container.NewPadded(name))
+	// 名称列：图标在左，名称在右，使用 HBox 确保横向排列
+	nameWithIcon := container.NewHBox(icon, name)
 
-	// ID
+	// ID - 使用 Center 容器确保水平居中显示
 	idLabel := widget.NewLabel(rec.GiftID)
 	idLabel.Alignment = fyne.TextAlignCenter
 	idLabel.Wrapping = fyne.TextWrapOff
+	idCell := container.NewCenter(idLabel)
 	
-	// 钻石数
+	// 钻石数 - 使用 Center 容器确保水平居中显示
 	diamondLabel := widget.NewLabel(fmt.Sprintf("%d", rec.DiamondValue))
 	diamondLabel.Alignment = fyne.TextAlignCenter
 	diamondLabel.Wrapping = fyne.TextWrapOff
+	diamondCell := container.NewCenter(diamondLabel)
 	
-	// 版本号
+	// 版本号 - 使用 Center 容器确保水平居中显示
 	versionLabel := widget.NewLabel(rec.Version)
 	versionLabel.Alignment = fyne.TextAlignCenter
 	versionLabel.Wrapping = fyne.TextWrapOff
 	versionLabel.Truncation = fyne.TextTruncateEllipsis
+	versionCell := container.NewCenter(versionLabel)
 	
-	// 更新时间
+	// 更新时间 - 使用 Center 容器确保水平居中显示
 	timeLabel := widget.NewLabel(formatDisplayTime(rec.UpdatedAt))
 	timeLabel.Alignment = fyne.TextAlignCenter
 	timeLabel.Wrapping = fyne.TextWrapOff
+	timeCell := container.NewCenter(timeLabel)
 
 	// 操作按钮
 	editBtn := widget.NewButton("编辑", func() {
@@ -1537,13 +1542,13 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	
 	actionBox := container.NewHBox(editBtn, deleteBtn)
 
-	// 使用网格布局，6列
+	// 使用网格布局，6列 - 每列都使用确保水平显示的容器
 	grid := container.New(layout.NewGridLayoutWithColumns(6),
 		nameWithIcon,
-		container.NewPadded(idLabel),
-		container.NewPadded(diamondLabel),
-		container.NewPadded(versionLabel),
-		container.NewPadded(timeLabel),
+		idCell,
+		diamondCell,
+		versionCell,
+		timeCell,
 		actionBox,
 	)
 
