@@ -95,6 +95,8 @@ type giftFilter struct {
 	DiamondMin int
 	DiamondMax int
 	SortAsc    bool
+	Page       int
+	PageSize   int
 }
 
 // RoomTab 房间Tab数据
@@ -584,7 +586,8 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 
 func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	statusLabel := widget.NewLabel("")
-	filter := giftFilter{SortAsc: true}
+	const defaultPageSize = 10
+	filter := giftFilter{SortAsc: true, Page: 1, PageSize: defaultPageSize}
 
 	nameFilter := widget.NewEntry()
 	nameFilter.SetPlaceHolder("礼物名称关键词")
@@ -597,8 +600,23 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	listScroll := container.NewVScroll(listContent)
 	listScroll.SetMinSize(fyne.NewSize(600, 420))
 
+	pageLabel := widget.NewLabel("")
+	var prevBtn, nextBtn *widget.Button
+
 	var renderList func()
 	renderList = func() {
+		total := ui.countGiftRecords(filter)
+		maxPage := (total + filter.PageSize - 1) / filter.PageSize
+		if maxPage == 0 {
+			maxPage = 1
+		}
+		if filter.Page > maxPage {
+			filter.Page = maxPage
+		}
+		if filter.Page < 1 {
+			filter.Page = 1
+		}
+
 		records := ui.loadGiftRecords(filter)
 		listContent.Objects = nil
 		if len(records) == 0 {
@@ -632,6 +650,22 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 			}
 		}
 		listContent.Refresh()
+
+		pageLabel.SetText(fmt.Sprintf("第 %d / %d 页（共 %d 条）", filter.Page, maxPage, total))
+		if prevBtn != nil {
+			if filter.Page <= 1 {
+				prevBtn.Disable()
+			} else {
+				prevBtn.Enable()
+			}
+		}
+		if nextBtn != nil {
+			if filter.Page >= maxPage {
+				nextBtn.Disable()
+			} else {
+				nextBtn.Enable()
+			}
+		}
 	}
 
 	sortBtn := widget.NewButton("钻石排序 ↑", func() {})
@@ -649,13 +683,14 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		filter.Name = strings.TrimSpace(nameFilter.Text)
 		filter.DiamondMin = parseTextInt(minDiamondEntry.Text)
 		filter.DiamondMax = parseTextInt(maxDiamondEntry.Text)
+		filter.Page = 1
 		renderList()
 	})
 	resetBtn := widget.NewButton("重置", func() {
 		nameFilter.SetText("")
 		minDiamondEntry.SetText("")
 		maxDiamondEntry.SetText("")
-		filter = giftFilter{SortAsc: true}
+		filter = giftFilter{SortAsc: true, Page: 1, PageSize: defaultPageSize}
 		sortBtn.SetText("钻石排序 ↑")
 		renderList()
 	})
@@ -697,21 +732,30 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		resetBtn,
 	)
 
+	prevBtn = widget.NewButton("上一页", func() {
+		if filter.Page > 1 {
+			filter.Page--
+			renderList()
+		}
+	})
+	nextBtn = widget.NewButton("下一页", func() {
+		filter.Page++
+		renderList()
+	})
+
 	actionBar := container.NewVBox(
 		container.NewHBox(addBtn, latestBtn, sortBtn, layout.NewSpacer(), statusLabel),
 		filterBar,
 	)
 
+	paginationBar := container.NewHBox(prevBtn, nextBtn, pageLabel)
+
 	renderList()
 
-	background := canvas.NewRectangle(color.NRGBA{R: 247, G: 248, B: 252, A: 255})
-	content := container.NewVBox(
-		actionBar,
-		widget.NewSeparator(),
-		listScroll,
-	)
+	cardContent := container.NewBorder(actionBar, paginationBar, nil, nil, listScroll)
+	card := widget.NewCard("礼物管理", "", cardContent)
 
-	return container.NewMax(background, container.NewPadded(content))
+	return container.NewPadded(card)
 }
 
 func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
@@ -1167,30 +1211,30 @@ func (ui *FyneUI) loadGiftRecords(filter giftFilter) []GiftRecord {
 		return records
 	}
 
-	query := `
+	whereClause, args := buildGiftWhereClause(filter)
+	orderClause := " ORDER BY diamond_value ASC, updated_at DESC"
+	if !filter.SortAsc {
+		orderClause = " ORDER BY diamond_value DESC, updated_at DESC"
+	}
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+	offset := (page - 1) * pageSize
+
+	query := fmt.Sprintf(`
 		SELECT id, gift_id, gift_name, diamond_value, icon_url, icon_local, version,
 		       COALESCE(is_deleted, 0), created_at, updated_at
 		FROM gifts
-		WHERE 1=1
-	`
-	args := make([]interface{}, 0)
-	if filter.Name != "" {
-		query += " AND gift_name LIKE ?"
-		args = append(args, "%"+filter.Name+"%")
-	}
-	if filter.DiamondMin > 0 {
-		query += " AND diamond_value >= ?"
-		args = append(args, filter.DiamondMin)
-	}
-	if filter.DiamondMax > 0 {
-		query += " AND diamond_value <= ?"
-		args = append(args, filter.DiamondMax)
-	}
-	if filter.SortAsc {
-		query += " ORDER BY diamond_value ASC, updated_at DESC"
-	} else {
-		query += " ORDER BY diamond_value DESC, updated_at DESC"
-	}
+		%s
+		%s
+		LIMIT ? OFFSET ?
+	`, whereClause, orderClause)
+	args = append(args, pageSize, offset)
 
 	rows, err := ui.db.Query(query, args...)
 	if err != nil {
@@ -1448,6 +1492,41 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func buildGiftWhereClause(filter giftFilter) (string, []interface{}) {
+	clauses := []string{"COALESCE(is_deleted, 0) = 0"}
+	args := make([]interface{}, 0)
+	if strings.TrimSpace(filter.Name) != "" {
+		clauses = append(clauses, "gift_name LIKE ?")
+		args = append(args, "%"+strings.TrimSpace(filter.Name)+"%")
+	}
+	if filter.DiamondMin > 0 {
+		clauses = append(clauses, "diamond_value >= ?")
+		args = append(args, filter.DiamondMin)
+	}
+	if filter.DiamondMax > 0 {
+		clauses = append(clauses, "diamond_value <= ?")
+		args = append(args, filter.DiamondMax)
+	}
+	where := ""
+	if len(clauses) > 0 {
+		where = "WHERE " + strings.Join(clauses, " AND ")
+	}
+	return where, args
+}
+
+func (ui *FyneUI) countGiftRecords(filter giftFilter) int {
+	if ui.db == nil {
+		return 0
+	}
+	where, args := buildGiftWhereClause(filter)
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM gifts %s`, where)
+	var total int
+	if err := ui.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0
+	}
+	return total
 }
 
 func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) [][]string {
