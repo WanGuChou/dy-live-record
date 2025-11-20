@@ -1444,21 +1444,10 @@ func (ui *FyneUI) showGiftEditor(existing *GiftRecord, onSaved func()) {
 }
 
 func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted func()) fyne.CanvasObject {
-	icon := canvas.NewImageFromResource(theme.DocumentIcon())
-	if fileExists(rec.IconLocal) {
-		icon = canvas.NewImageFromFile(rec.IconLocal)
-	}
-	icon.SetMinSize(fyne.NewSize(48, 48))
-	icon.FillMode = canvas.ImageFillContain
-
 	name := widget.NewLabel(rec.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
 	detail := widget.NewLabel(fmt.Sprintf("ID: %s", rec.GiftID))
-	nameCol := container.NewHBox(icon, container.NewVBox(name, detail))
-
-	diamondLabel := widget.NewLabel(fmt.Sprintf("%d", rec.DiamondValue))
-	versionLabel := widget.NewLabel(rec.Version)
-	timeLabel := widget.NewLabel(formatDisplayTime(rec.CreatedAt))
+	nameCol := container.NewVBox(name, detail)
 
 	editBtn := widget.NewButton("编辑", func() {
 		if onEdit != nil {
@@ -1476,8 +1465,17 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	})
 	actionBox := container.NewHBox(editBtn, deleteBtn)
 
+	icon := canvas.NewImageFromResource(theme.DocumentIcon())
+	if fileExists(rec.IconLocal) {
+		icon = canvas.NewImageFromFile(rec.IconLocal)
+	}
+	icon.SetMinSize(fyne.NewSize(32, 32))
+	icon.FillMode = canvas.ImageFillContain
+
+	nameCell := container.NewHBox(icon, container.NewPadded(nameCol))
+
 	row := container.NewGridWithColumns(6,
-		container.NewPadded(nameCol),
+		nameCell,
 		centeredLabel(rec.GiftID),
 		centeredLabel(fmt.Sprintf("%d", rec.DiamondValue)),
 		centeredLabel(rec.Version),
