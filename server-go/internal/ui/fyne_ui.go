@@ -764,7 +764,8 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	renderList()
 
 	headerRow := ui.buildGiftHeaderRow()
-	listBackground := canvas.NewRectangle(color.NRGBA{R: 248, G: 249, B: 252, A: 255})
+	listBackground := canvas.NewRectangle(theme.BackgroundColor())
+	listBackground.CornerRadius = 12
 	listWrapper := container.NewVBox(headerRow, listScroll)
 	listArea := container.NewMax(listBackground, container.NewPadded(listWrapper))
 
@@ -1500,7 +1501,7 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	})
 	actionBox := container.NewHBox(editBtn, deleteBtn)
 
-	row := container.NewGridWithColumns(6,
+	grid := container.NewGridWithColumns(6,
 		nameCell,
 		centeredLabel(rec.GiftID),
 		centeredLabel(fmt.Sprintf("%d", rec.DiamondValue)),
@@ -1509,11 +1510,14 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 		container.NewCenter(actionBox),
 	)
 
-	rowBackground := canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
-	rowBackground.StrokeColor = color.NRGBA{R: 230, G: 234, B: 240, A: 255}
+	rowBackground := canvas.NewRectangle(theme.InputBackgroundColor())
+	rowBackground.CornerRadius = 8
+	rowBackground.StrokeColor = theme.ShadowColor()
 	rowBackground.StrokeWidth = 1
 
-	return container.NewMax(rowBackground, container.NewPadded(row))
+	content := container.NewPadded(grid)
+	wrapped := container.NewMax(rowBackground, content)
+	return container.NewPadded(wrapped)
 }
 
 func fileExists(path string) bool {
@@ -1549,7 +1553,8 @@ func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
 		cells = append(cells, container.NewCenter(lbl))
 	}
 	row := container.NewGridWithColumns(len(headers), cells...)
-	rowBg := canvas.NewRectangle(color.NRGBA{R: 230, G: 234, B: 240, A: 255})
+	rowBg := canvas.NewRectangle(theme.ButtonColor())
+	rowBg.CornerRadius = 8
 	return container.NewMax(rowBg, container.NewPadded(row))
 }
 
