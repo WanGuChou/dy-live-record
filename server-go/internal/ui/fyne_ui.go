@@ -563,6 +563,17 @@ func (ui *FyneUI) createGlobalAnchorTab() fyne.CanvasObject {
 func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	data := ui.loadAllGifts()
 
+	statusLabel := widget.NewLabel("")
+
+	idEntry := widget.NewEntry()
+	idEntry.SetPlaceHolder("礼物ID")
+	nameEntry := widget.NewEntry()
+	nameEntry.SetPlaceHolder("礼物名称")
+	diamondEntry := widget.NewEntry()
+	diamondEntry.SetPlaceHolder("钻石数")
+	versionEntry := widget.NewEntry()
+	versionEntry.SetPlaceHolder("版本号")
+
 	table := widget.NewTable(
 		func() (int, int) {
 			if len(data) == 0 {
@@ -577,20 +588,24 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 			}
 		},
 	)
+	table.SetColumnWidth(0, 140)
+	table.SetColumnWidth(1, 180)
+	table.SetColumnWidth(2, 80)
+	table.SetColumnWidth(3, 120)
+	table.SetColumnWidth(4, 140)
 
-	statusLabel := widget.NewLabel("")
-
-	idEntry := widget.NewEntry()
-	idEntry.SetPlaceHolder("礼物ID")
-	nameEntry := widget.NewEntry()
-	nameEntry.SetPlaceHolder("礼物名称")
-	diamondEntry := widget.NewEntry()
-	diamondEntry.SetPlaceHolder("钻石数")
-	versionEntry := widget.NewEntry()
-	versionEntry.SetPlaceHolder("版本号")
+	clearForm := func() {
+		idEntry.SetText("")
+		nameEntry.SetText("")
+		diamondEntry.SetText("")
+		versionEntry.SetText("")
+		statusLabel.SetText("")
+		table.UnselectAll()
+	}
 
 	saveBtn := widget.NewButton("保存礼物", func() {
 		if idEntry.Text == "" || nameEntry.Text == "" {
+			statusLabel.SetText("请填写礼物ID和名称")
 			return
 		}
 		diamond := toInt(diamondEntry.Text)
@@ -601,34 +616,50 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		`, idEntry.Text, nameEntry.Text, diamond, versionEntry.Text)
 		if err != nil {
 			log.Printf("⚠️  保存礼物失败: %v", err)
+			statusLabel.SetText(fmt.Sprintf("保存失败: %v", err))
 			return
 		}
 		data = ui.loadAllGifts()
 		table.Refresh()
+		statusLabel.SetText("✅ 礼物已保存")
 	})
 
-	roomEntry := widget.NewEntry()
-	roomEntry.SetPlaceHolder("房间号")
-	bindGiftEntry := widget.NewEntry()
-	bindGiftEntry.SetPlaceHolder("礼物名称")
-	bindAnchorEntry := widget.NewEntry()
-	bindAnchorEntry.SetPlaceHolder("主播ID")
-
-	bindBtn := widget.NewButton("绑定礼物到主播", func() {
-		if roomEntry.Text == "" || bindGiftEntry.Text == "" || bindAnchorEntry.Text == "" {
+	deleteBtn := widget.NewButton("删除礼物", func() {
+		id := strings.TrimSpace(idEntry.Text)
+		if id == "" {
+			statusLabel.SetText("请选择需要删除的礼物")
 			return
 		}
-		_, err := ui.db.Exec(`
-			INSERT INTO room_gift_bindings (room_id, gift_name, anchor_id)
-			VALUES (?, ?, ?)
-			ON CONFLICT(room_id, gift_name) DO UPDATE SET anchor_id=excluded.anchor_id
-		`, roomEntry.Text, bindGiftEntry.Text, bindAnchorEntry.Text)
-		if err != nil {
-			log.Printf("⚠️  绑定礼物失败: %v", err)
+		if _, err := ui.db.Exec(`DELETE FROM gifts WHERE gift_id = ?`, id); err != nil {
+			statusLabel.SetText(fmt.Sprintf("删除失败: %v", err))
 			return
 		}
-		ui.updateOverviewStatus(fmt.Sprintf("已将礼物 %s 绑定到主播 %s", bindGiftEntry.Text, bindAnchorEntry.Text))
+		data = ui.loadAllGifts()
+		table.Refresh()
+		clearForm()
+		statusLabel.SetText("已删除")
 	})
+
+	refreshBtn := widget.NewButton("刷新列表", func() {
+		data = ui.loadAllGifts()
+		table.Refresh()
+		statusLabel.SetText("已刷新")
+	})
+
+	clearBtn := widget.NewButton("清空表单", func() {
+		clearForm()
+	})
+
+	table.OnSelected = func(id widget.TableCellID) {
+		if id.Row <= 0 || id.Row >= len(data) {
+			return
+		}
+		row := data[id.Row]
+		idEntry.SetText(row[0])
+		nameEntry.SetText(row[1])
+		diamondEntry.SetText(row[2])
+		versionEntry.SetText(row[3])
+	}
 
 	var latestBtn *widget.Button
 	latestBtn = widget.NewButton("更新最新礼物列表", func() {
@@ -653,25 +684,25 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		}()
 	})
 
-	toolbar := container.NewVBox(
+	form := container.NewVBox(
 		widget.NewLabel("礼物维护"),
 		latestBtn,
 		statusLabel,
-		idEntry,
-		nameEntry,
-		diamondEntry,
-		versionEntry,
-		saveBtn,
 		widget.NewSeparator(),
-		widget.NewLabel("礼物归属"),
-		roomEntry,
-		bindGiftEntry,
-		bindAnchorEntry,
-		bindBtn,
+		widget.NewLabel("礼物ID"),
+		idEntry,
+		widget.NewLabel("礼物名称"),
+		nameEntry,
+		widget.NewLabel("钻石数"),
+		diamondEntry,
+		widget.NewLabel("版本号"),
+		versionEntry,
+		container.NewHBox(saveBtn, deleteBtn),
+		container.NewHBox(refreshBtn, clearBtn),
 	)
 
 	return container.NewBorder(
-		toolbar,
+		form,
 		nil, nil, nil,
 		container.NewScroll(table),
 	)
