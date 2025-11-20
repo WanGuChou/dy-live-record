@@ -598,7 +598,6 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 
 	listContent := container.NewVBox()
 	listScroll := container.NewVScroll(listContent)
-	listScroll.SetMinSize(fyne.NewSize(600, 400))
 
 	pageLabel := widget.NewLabel("")
 	var prevBtn, nextBtn *widget.Button
@@ -764,21 +763,15 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	renderList()
 
 	headerRow := ui.buildGiftHeaderRow()
-	listBackground := canvas.NewRectangle(theme.BackgroundColor())
+	listBackground := canvas.NewRectangle(ui.giftListBackgroundColor())
 	listBackground.CornerRadius = 12
 	listWrapper := container.NewVBox(headerRow, listScroll)
 	listArea := container.NewMax(listBackground, container.NewPadded(listWrapper))
 
-	cardContent := container.NewVBox(
-		filterBar,
-		buttonRow,
-		widget.NewSeparator(),
-		listArea,
-		paginationBar,
-	)
-	card := widget.NewCard("礼物管理", "", container.NewPadded(cardContent))
+	topSection := container.NewVBox(filterBar, buttonRow, widget.NewSeparator())
+	mainContent := container.NewBorder(topSection, paginationBar, nil, nil, listArea)
 
-	return container.NewBorder(nil, nil, nil, nil, card)
+	return container.NewPadded(mainContent)
 }
 
 func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
@@ -1481,9 +1474,9 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 
 	name := widget.NewLabel(rec.Name)
 	name.TextStyle = fyne.TextStyle{Bold: true}
-	detail := widget.NewLabel(fmt.Sprintf("ID: %s", rec.GiftID))
-	nameCol := container.NewVBox(name, detail)
-	nameCell := container.NewHBox(icon, container.NewPadded(nameCol))
+	name.Wrapping = fyne.TextWrapOff
+	name.Truncation = fyne.TextTruncateEllipsis
+	nameCell := container.NewHBox(icon, container.NewPadded(container.NewVBox(name)))
 
 	editBtn := widget.NewButton("编辑", func() {
 		if onEdit != nil {
@@ -1510,9 +1503,9 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 		container.NewCenter(actionBox),
 	)
 
-	rowBackground := canvas.NewRectangle(theme.InputBackgroundColor())
+	rowBackground := canvas.NewRectangle(ui.giftRowBackgroundColor())
 	rowBackground.CornerRadius = 8
-	rowBackground.StrokeColor = theme.ShadowColor()
+	rowBackground.StrokeColor = ui.giftRowBorderColor()
 	rowBackground.StrokeWidth = 1
 
 	content := container.NewPadded(grid)
@@ -1541,8 +1534,48 @@ func boolToInt(b bool) int {
 func centeredLabel(text string) fyne.CanvasObject {
 	lbl := widget.NewLabel(text)
 	lbl.Alignment = fyne.TextAlignCenter
-	lbl.Wrapping = fyne.TextWrapWord
+	lbl.Wrapping = fyne.TextWrapOff
+	lbl.Truncation = fyne.TextTruncateEllipsis
 	return container.NewCenter(lbl)
+}
+
+func (ui *FyneUI) isDarkThemeVariant() bool {
+	if ui.app == nil {
+		return ui.userTheme == "深色"
+	}
+	settings := ui.app.Settings()
+	if settings == nil {
+		return ui.userTheme == "深色"
+	}
+	return settings.ThemeVariant() == theme.VariantDark
+}
+
+func (ui *FyneUI) giftListBackgroundColor() color.Color {
+	if ui.isDarkThemeVariant() {
+		return color.NRGBA{R: 34, G: 36, B: 42, A: 255}
+	}
+	return color.NRGBA{R: 247, G: 248, B: 252, A: 255}
+}
+
+func (ui *FyneUI) giftHeaderBackgroundColor() color.Color {
+	if ui.isDarkThemeVariant() {
+		return color.NRGBA{R: 55, G: 60, B: 70, A: 255}
+	}
+	return color.NRGBA{R: 230, G: 236, B: 250, A: 255}
+}
+
+func (ui *FyneUI) giftRowBackgroundColor() color.Color {
+	if ui.isDarkThemeVariant() {
+		return color.NRGBA{R: 44, G: 46, B: 54, A: 255}
+	}
+	return color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+}
+
+func (ui *FyneUI) giftRowBorderColor() color.Color {
+	if ui.isDarkThemeVariant() {
+		return color.NRGBA{R: 70, G: 75, B: 85, A: 255}
+	}
+	return color.NRGBA{R: 217, G: 221, B: 231, A: 255}
 }
 
 func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
@@ -1550,10 +1583,11 @@ func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
 	cells := make([]fyne.CanvasObject, 0, len(headers))
 	for _, h := range headers {
 		lbl := widget.NewLabelWithStyle(h, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+		lbl.Wrapping = fyne.TextWrapOff
 		cells = append(cells, container.NewCenter(lbl))
 	}
 	row := container.NewGridWithColumns(len(headers), cells...)
-	rowBg := canvas.NewRectangle(theme.ButtonColor())
+	rowBg := canvas.NewRectangle(ui.giftHeaderBackgroundColor())
 	rowBg.CornerRadius = 8
 	return container.NewMax(rowBg, container.NewPadded(row))
 }
