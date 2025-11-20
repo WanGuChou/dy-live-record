@@ -1418,15 +1418,15 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	})
 
 	rowBackground := canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
-	rowBackground.SetStrokeColor(color.NRGBA{R: 225, G: 229, B: 236, A: 255})
-	rowBackground.SetStrokeWidth(1)
+	rowBackground.StrokeColor = color.NRGBA{R: 225, G: 229, B: 236, A: 255}
+	rowBackground.StrokeWidth = 1
 
-	iconBox := container.NewCenter(icon)
-	iconBox.SetMinSize(fyne.NewSize(80, 80))
+	iconBox := container.New(layout.NewCenterLayout(), icon)
+	iconWrapper := container.New(layout.NewGridWrapLayout(fyne.NewSize(80, 80)), iconBox)
 	info := container.NewVBox(name, meta, status)
 	buttons := container.NewVBox(editBtn, deleteBtn)
 
-	content := container.NewBorder(nil, nil, iconBox, buttons, info)
+	content := container.NewBorder(nil, nil, iconWrapper, buttons, info)
 	content = container.NewPadded(content)
 
 	return container.NewMax(rowBackground, content)
