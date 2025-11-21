@@ -2552,6 +2552,13 @@ func (ui *FyneUI) AddParsedMessageWithDetail(roomID string, message string, deta
 	if detail != nil {
 		if parsed, ok := detail["_parsed"].(*parser.ParsedProtoMessage); ok {
 			ui.recordParsedMessage(roomID, parsed, false)
+			// 如果是礼物消息，刷新礼物表格（因为 WebSocket 已经保存到数据库了）
+			if parsed.MessageType == "礼物消息" {
+				if roomTab, ok := ui.roomTabs[roomID]; ok {
+					log.Printf("🔄 [房间 %s] 浏览器插件礼物消息，刷新礼物表格", roomID)
+					ui.refreshRoomTables(roomTab)
+				}
+			}
 			return
 		}
 	}
@@ -2575,6 +2582,14 @@ func (ui *FyneUI) AddParsedMessageWithDetail(roomID string, message string, deta
 	}
 
 	ui.recordParsedMessage(roomID, parsed, false)
+
+	// 如果是礼物消息，刷新礼物表格
+	if msgType == "礼物消息" {
+		if roomTab, ok := ui.roomTabs[roomID]; ok {
+			log.Printf("🔄 [房间 %s] 浏览器插件礼物消息，刷新礼物表格", roomID)
+			ui.refreshRoomTables(roomTab)
+		}
+	}
 }
 
 func formatDisplayWithTimestamp(ts time.Time, original string) string {
@@ -2681,6 +2696,12 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 			log.Printf("🎁 [房间 %s] 手动连接收到礼物消息，准备保存到 gift_records", roomID)
 			if err := ui.saveManualGiftRecord(roomID, parsed); err != nil {
 				log.Printf("❌ [房间 %s] 保存手动房间礼物记录失败: %v", roomID, err)
+			} else {
+				// 保存成功后刷新礼物表格
+				if roomTab, ok := ui.roomTabs[roomID]; ok {
+					log.Printf("🔄 [房间 %s] 刷新礼物表格", roomID)
+					ui.refreshRoomTables(roomTab)
+				}
 			}
 		}
 	}
