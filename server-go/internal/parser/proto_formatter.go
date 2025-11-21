@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	generatedmsg "github.com/jwwsjlm/douyinLive/generated"
-	newdouyin "github.com/jwwsjlm/douyinLive/generated/new_douyin"
+	generatedmsg "dy-live-monitor/internal/jwwsjlm/douyinLive/generated"
+	newdouyin "dy-live-monitor/internal/jwwsjlm/douyinLive/generated/new_douyin"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )

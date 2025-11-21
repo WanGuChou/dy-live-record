@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	douyinLive "github.com/jwwsjlm/douyinLive"
-	newdouyin "github.com/jwwsjlm/douyinLive/generated/new_douyin"
+	douyinLive "dy-live-monitor/internal/jwwsjlm/douyinLive"
+	newdouyin "dy-live-monitor/internal/jwwsjlm/douyinLive/generated/new_douyin"
 	"github.com/tidwall/gjson"
 
 	"dy-live-monitor/internal/parser"

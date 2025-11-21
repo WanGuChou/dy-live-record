@@ -1,0 +1,16 @@
+/.idea
+/main/main.exe
+/main/main.zip
+/main/*.exe
+/protobuf/*.zip
+/main/main.7z
+/cmd/main/*.7z
+/cmd/main/.idea
+/cmd/main/douyinlive.exe
+/cmd/main/*.exe
+/*.exe
+/.vscode
+/.github/workflows/.go.yml
+/douyinlive-linux
+/build/douyinlive-linux
+/build/douyinlive-windows.exe
