@@ -28,8 +28,7 @@ func (db *DB) CreateScoreSegmentsTable() error {
 		start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		end_time TIMESTAMP,
 		total_gift_value INTEGER DEFAULT 0,
-		total_messages INTEGER DEFAULT 0,
-		FOREIGN KEY (session_id) REFERENCES live_sessions(id)
+		total_messages INTEGER DEFAULT 0
 	);
 	
 	CREATE INDEX IF NOT EXISTS idx_segments_session ON score_segments(session_id);

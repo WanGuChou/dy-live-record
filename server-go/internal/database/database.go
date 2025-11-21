@@ -60,23 +60,10 @@ func (db *DB) initSchema() error {
 		last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
-	-- 直播场次表
-	CREATE TABLE IF NOT EXISTS live_sessions (
-		session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-		room_id TEXT NOT NULL,
-		start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		end_time TIMESTAMP,
-		total_gifts_value INTEGER DEFAULT 0,
-		total_messages INTEGER DEFAULT 0,
-		total_members INTEGER DEFAULT 0,
-		FOREIGN KEY (room_id) REFERENCES rooms(room_id)
-	);
-
 	-- 礼物记录表
 	CREATE TABLE IF NOT EXISTS gift_records (
 		record_id INTEGER PRIMARY KEY AUTOINCREMENT,
 		msg_id TEXT,
-		session_id INTEGER NOT NULL,
 		room_id TEXT NOT NULL,
 		create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		user_id TEXT,
@@ -87,7 +74,6 @@ func (db *DB) initSchema() error {
 		gift_diamond_value INTEGER DEFAULT 0,
 		anchor_id TEXT,
 		anchor_name TEXT,
-		FOREIGN KEY (session_id) REFERENCES live_sessions(session_id),
 		FOREIGN KEY (room_id) REFERENCES rooms(room_id)
 	);
 
@@ -134,10 +120,8 @@ func (db *DB) initSchema() error {
 	);
 
 	-- 索引
-	CREATE INDEX IF NOT EXISTS idx_gifts_session ON gift_records(session_id);
 	CREATE INDEX IF NOT EXISTS idx_gifts_room ON gift_records(room_id);
 	CREATE INDEX IF NOT EXISTS idx_gifts_timestamp ON gift_records(create_time);
-	CREATE INDEX IF NOT EXISTS idx_sessions_room ON live_sessions(room_id);
 	CREATE INDEX IF NOT EXISTS idx_room_anchors_room ON room_anchors(room_id);
 	CREATE INDEX IF NOT EXISTS idx_room_gift_binding ON room_gift_bindings(room_id);
 	`

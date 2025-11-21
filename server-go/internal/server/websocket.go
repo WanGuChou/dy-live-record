@@ -39,7 +39,6 @@ type WebSocketServer struct {
 // RoomManager 房间管理器
 type RoomManager struct {
 	RoomID      string
-	SessionID   int64
 	LastMessage int64
 }
 
@@ -185,7 +184,7 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	}
 
 	// 获取或创建房间管理器
-	room := s.getOrCreateRoom(roomID)
+	_ = s.getOrCreateRoom(roomID)
 
 	// 通知UI创建房间Tab
 	if s.uiUpdater != nil {
@@ -213,7 +212,7 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	for i, msg := range parsedMessages {
 		log.Printf("📝 [房间 %s] 处理消息 %d/%d: %s - %s", roomID, i+1, len(parsedMessages), msg.MessageType, msg.Method)
 
-		s.saveMessage(roomID, room.SessionID, msg)
+		s.saveMessage(roomID, msg)
 
 		if s.uiUpdater != nil {
 			detailCopy := cloneDetail(msg.Detail)
@@ -284,34 +283,15 @@ func (s *WebSocketServer) getOrCreateRoom(roomID string) *RoomManager {
 			log.Printf("⚠️  确保房间记录失败: %v", err)
 		}
 
-		// 创建新的直播场次
-		sessionID := s.createLiveSession(roomID)
-		room.SessionID = sessionID
-
 		s.rooms[roomID] = room
-		log.Printf("🎬 创建新房间: %s (Session: %d)", roomID, sessionID)
+		log.Printf("🎬 创建新房间: %s", roomID)
 	}
 
 	return room
 }
 
-// createLiveSession 创建直播场次
-func (s *WebSocketServer) createLiveSession(roomID string) int64 {
-	result, err := s.db.GetConnection().Exec(
-		"INSERT INTO live_sessions (room_id) VALUES (?)",
-		roomID,
-	)
-	if err != nil {
-		log.Printf("❌ 创建场次失败: %v", err)
-		return 0
-	}
-
-	sessionID, _ := result.LastInsertId()
-	return sessionID
-}
-
 // saveMessage 保存消息到数据库
-func (s *WebSocketServer) saveMessage(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
+func (s *WebSocketServer) saveMessage(roomID string, parsed *parser.ParsedProtoMessage) {
 	if parsed == nil {
 		log.Printf("⚠️  [房间 %s] parsed 消息为 nil，跳过保存", roomID)
 		return
@@ -322,7 +302,7 @@ func (s *WebSocketServer) saveMessage(roomID string, sessionID int64, parsed *pa
 	switch parsed.MessageType {
 	case "礼物消息":
 		log.Printf("✅ [房间 %s] 识别到礼物消息，准备保存到 gift_records", roomID)
-		s.saveGiftRecord(roomID, sessionID, parsed)
+		s.saveGiftRecord(roomID, parsed)
 	default:
 		log.Printf("ℹ️  [房间 %s] 消息类型 '%s' 不需要特殊处理", roomID, parsed.MessageType)
 	}
@@ -399,8 +379,8 @@ func cloneDetail(detail map[string]interface{}) map[string]interface{} {
 }
 
 // saveGiftRecord 保存礼物记录
-func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
-	log.Printf("🎁 [房间 %s] 开始处理礼物记录，SessionID: %d", roomID, sessionID)
+func (s *WebSocketServer) saveGiftRecord(roomID string, parsed *parser.ParsedProtoMessage) {
+	log.Printf("🎁 [房间 %s] 开始处理礼物记录", roomID)
 
 	detail := parsed.Detail
 	if detail == nil {
@@ -452,15 +432,15 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 
 	result, err := s.db.GetConnection().Exec(`
 		INSERT INTO gift_records (
-			msg_id, session_id, room_id, user_id, user_nickname, gift_id, gift_name, 
+			msg_id, room_id, user_id, user_nickname, gift_id, gift_name, 
 			gift_count, gift_diamond_value, anchor_id, anchor_name
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, msgID, sessionID, roomID, userID, userNickname, giftID, giftName, giftCount, diamondCount, anchorID, anchorName)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, msgID, roomID, userID, userNickname, giftID, giftName, giftCount, diamondCount, anchorID, anchorName)
 
 	if err != nil {
 		log.Printf("❌ [房间 %s] 保存礼物记录失败: %v", roomID, err)
-		log.Printf("❌ [房间 %s] 失败的数据: msgID=%s, sessionID=%d, userNickname=%s, giftName=%s",
-			roomID, msgID, sessionID, userNickname, giftName)
+		log.Printf("❌ [房间 %s] 失败的数据: msgID=%s, userNickname=%s, giftName=%s",
+			roomID, msgID, userNickname, giftName)
 		return
 	}
 
