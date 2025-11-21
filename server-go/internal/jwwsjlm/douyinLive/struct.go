@@ -1,6 +1,7 @@
 package douyinLive
 
 import (
+	"database/sql"
 	"net/http"
 	"sync"
 
@@ -41,8 +42,9 @@ type DouyinLive struct {
 	bufferPool    *sync.Pool
 	isLiveClosed  bool
 	LiveName      string
-	logger        logger // 添加日志接口字段
-	manualClose   bool   // 新增字段：标记是否手动关闭
+	logger        logger   // 添加日志接口字段
+	manualClose   bool     // 新增字段：标记是否手动关闭
+	db            *sql.DB  // 数据库连接（可选）
 }
 type logger interface {
 	Printf(format string, v ...interface{})

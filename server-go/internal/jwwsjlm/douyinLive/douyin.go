@@ -3,6 +3,7 @@ package douyinLive
 import (
 	"bytes"
 	"compress/gzip"
+	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/tidwall/gjson"
@@ -243,6 +244,16 @@ func (dl *DouyinLive) startWebSocket() error {
 		return fmt.Errorf("连接失败 (状态码: %d): %w", resp.StatusCode, err)
 	}
 	dl.logger.Printf("直播间连接成功(状态码):[%d] 直播间名称:[%s]\n", resp.StatusCode, dl.LiveName)
+	
+	// 插入或更新 rooms 表记录
+	if dl.db != nil {
+		if err := dl.ensureRoomRecord(); err != nil {
+			dl.logger.Printf("⚠️  插入/更新房间记录失败 (房间 %s): %v\n", dl.roomID, err)
+		} else {
+			dl.logger.Printf("✅ 房间记录已更新 (房间 %s, 名称: %s)\n", dl.roomID, dl.LiveName)
+		}
+	}
+	
 	dl.conn = conn
 	return nil
 }
@@ -548,4 +559,47 @@ func extractString(re *regexp.Regexp, s string, index int) string {
 		return matches[index]
 	}
 	return ""
+}
+
+// SetDB 设置数据库连接
+func (dl *DouyinLive) SetDB(db *sql.DB) {
+	dl.mu.Lock()
+	defer dl.mu.Unlock()
+	dl.db = db
+}
+
+// ensureRoomRecord 确保 rooms 表中有房间记录
+func (dl *DouyinLive) ensureRoomRecord() error {
+	if dl.db == nil || dl.roomID == "" {
+		return nil
+	}
+
+	// 检查是否已存在
+	var count int
+	err := dl.db.QueryRow(`SELECT COUNT(*) FROM rooms WHERE room_id = ?`, dl.roomID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("查询房间记录失败: %w", err)
+	}
+
+	if count > 0 {
+		// 已存在，更新 room_title, anchor_name 和 last_seen_at
+		_, err := dl.db.Exec(`
+			UPDATE rooms 
+			SET room_title = ?, last_seen_at = CURRENT_TIMESTAMP 
+			WHERE room_id = ?
+		`, dl.LiveName, dl.roomID)
+		return err
+	}
+
+	// 不存在，插入新记录
+	_, err = dl.db.Exec(`
+		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
+		VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, dl.roomID, dl.LiveName)
+
+	if err != nil {
+		return fmt.Errorf("插入房间记录失败: %w", err)
+	}
+
+	return nil
 }

@@ -50,6 +50,12 @@ func (ui *FyneUI) startManualRoom(roomID string) error {
 		log.Printf("❌ [手动房间 %s] 创建连接失败: %v", roomID, err)
 		return err
 	}
+	
+	// 设置数据库连接
+	if ui.db != nil {
+		live.SetDB(ui.db)
+		log.Printf("✅ [手动房间 %s] 数据库连接已设置", roomID)
+	}
 
 	log.Printf("✅ [手动房间 %s] 连接对象创建成功", roomID)
 
