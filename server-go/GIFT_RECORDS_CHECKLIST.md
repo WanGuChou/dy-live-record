@@ -22,8 +22,9 @@
 - [x] 修改 recordParsedMessage 函数，添加礼物消息保存逻辑
 - [x] 新增 saveManualGiftRecord 函数
 - [x] 新增 getOrCreateManualSession 函数
-- [x] 添加辅助函数（toString, toInt）
+- [x] 添加辅助函数（toString）
 - [x] 更新 manual_room.go 的导入语句
+- [x] 修复 toInt 函数重复声明问题
 
 ### ✅ 4. 日志增强
 - [x] saveMessage 函数日志

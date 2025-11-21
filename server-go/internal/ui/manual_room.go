@@ -284,20 +284,3 @@ func toString(v interface{}) string {
 	}
 	return fmt.Sprintf("%v", v)
 }
-
-// 辅助函数：转换接口类型为整数
-func toInt(v interface{}) int {
-	switch val := v.(type) {
-	case int:
-		return val
-	case int64:
-		return int(val)
-	case float64:
-		return int(val)
-	case string:
-		i, _ := strconv.Atoi(val)
-		return i
-	default:
-		return 0
-	}
-}
