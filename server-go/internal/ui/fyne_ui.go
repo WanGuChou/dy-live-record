@@ -660,7 +660,7 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 		renderList()
 	})
 	searchBtn.Importance = widget.HighImportance
-	
+
 	resetBtn := widget.NewButton("重置", func() {
 		nameFilter.SetText("")
 		minDiamondEntry.SetText("")
@@ -738,7 +738,7 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	pageSizeEntry := widget.NewEntry()
 	pageSizeEntry.SetText(fmt.Sprintf("%d", defaultPageSize))
 	pageSizeEntry.SetPlaceHolder("每页行数")
-	
+
 	pageSizeBtn := widget.NewButton("设置", func() {
 		newSize := parseTextInt(pageSizeEntry.Text)
 		if newSize > 0 && newSize <= 100 {
@@ -749,13 +749,13 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 			statusLabel.SetText("每页行数必须在 1-100 之间")
 		}
 	})
-	
+
 	pageSizeBox := container.NewHBox(
 		widget.NewLabel("每页显示:"),
 		pageSizeEntry,
 		pageSizeBtn,
 	)
-	
+
 	paginationButtons := container.NewCenter(container.NewHBox(prevBtn, nextBtn))
 	paginationBar := container.NewVBox(
 		container.NewHBox(
@@ -769,7 +769,7 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 	renderList()
 
 	headerRow := ui.buildGiftHeaderRow()
-	
+
 	// 列表区域 - 表头 + 分隔符 + 滚动列表
 	listArea := container.NewBorder(
 		container.NewVBox(headerRow, widget.NewSeparator()), // 顶部：表头
@@ -779,13 +779,13 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 
 	// 顶部区域
 	topSection := container.NewVBox(filterBar, buttonRow, widget.NewSeparator())
-	
+
 	// 主布局：顶部固定，底部固定，中间列表自动扩展
 	mainContent := container.NewBorder(
-		topSection,      // 顶部：筛选 + 按钮
-		paginationBar,   // 底部：分页控件
+		topSection,    // 顶部：筛选 + 按钮
+		paginationBar, // 底部：分页控件
 		nil, nil,
-		listArea,        // 中间：列表区域自动扩展填充
+		listArea, // 中间：列表区域自动扩展填充
 	)
 
 	return mainContent
@@ -793,11 +793,11 @@ func (ui *FyneUI) createGiftManagementTab() fyne.CanvasObject {
 
 func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 	statusLabel := widget.NewLabel("")
-	
+
 	// 手动添加房间区域
 	manualRoomEntry := widget.NewEntry()
 	manualRoomEntry.SetPlaceHolder("输入抖音房间号 (短号或 room_id)")
-	
+
 	addRoomBtn := widget.NewButton("手动添加房间", func() {
 		roomID := strings.TrimSpace(manualRoomEntry.Text)
 		if roomID == "" {
@@ -823,14 +823,14 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 		}(roomID)
 	})
 	addRoomBtn.Importance = widget.HighImportance
-	
+
 	manualRoomSection := container.NewVBox(
 		widget.NewLabel("📡 手动添加直播间"),
 		widget.NewLabel("无需浏览器插件，直接建立 WSS 连接获取直播消息"),
 		container.NewBorder(nil, nil, nil, addRoomBtn, manualRoomEntry),
 		widget.NewSeparator(),
 	)
-	
+
 	// 历史房间查询区域
 	roomFilter := widget.NewEntry()
 	roomFilter.SetPlaceHolder("房间号")
@@ -848,7 +848,7 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 	for i, row := range data {
 		summaries[i] = roomSummary{ID: row[0], Title: row[1], Display: strings.Join(row, " | ")}
 	}
-	
+
 	updateStatusLabel := func() {
 		if statusLabel.Text == "" || strings.HasPrefix(statusLabel.Text, "共") {
 			statusLabel.SetText(fmt.Sprintf("共 %d 条记录", len(summaries)))
@@ -926,7 +926,7 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 		container.NewHBox(queryBtn, openBtn, exportGiftsBtn, exportAnchorsBtn),
 		widget.NewSeparator(),
 	)
-	
+
 	topSection := container.NewVBox(
 		manualRoomSection,
 		historySection,
@@ -1539,7 +1539,7 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	idLabel.Alignment = fyne.TextAlignCenter
 	idLabel.Wrapping = fyne.TextWrapOff
 	idCell := container.NewCenter(idLabel)
-	
+
 	// 2. 名称列 - 左对齐，加粗
 	nameLabel := widget.NewLabel(rec.Name)
 	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -1547,7 +1547,7 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	nameLabel.Truncation = fyne.TextTruncateEllipsis
 	nameLabel.Alignment = fyne.TextAlignLeading
 	nameCell := container.NewPadded(nameLabel)
-	
+
 	// 3. 图标列 - 居中显示
 	icon := canvas.NewImageFromResource(theme.DocumentIcon())
 	if fileExists(rec.IconLocal) {
@@ -1556,20 +1556,20 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 	icon.SetMinSize(fyne.NewSize(32, 32))
 	icon.FillMode = canvas.ImageFillContain
 	iconCell := container.NewCenter(icon)
-	
+
 	// 4. 钻石数列 - 居中显示
 	diamondLabel := widget.NewLabel(fmt.Sprintf("%d", rec.DiamondValue))
 	diamondLabel.Alignment = fyne.TextAlignCenter
 	diamondLabel.Wrapping = fyne.TextWrapOff
 	diamondCell := container.NewCenter(diamondLabel)
-	
+
 	// 5. 版本号列 - 居中显示
 	versionLabel := widget.NewLabel(rec.Version)
 	versionLabel.Alignment = fyne.TextAlignCenter
 	versionLabel.Wrapping = fyne.TextWrapOff
 	versionLabel.Truncation = fyne.TextTruncateEllipsis
 	versionCell := container.NewCenter(versionLabel)
-	
+
 	// 6. 更新时间列 - 右对齐
 	timeLabel := widget.NewLabel(formatDisplayTime(rec.UpdatedAt))
 	timeLabel.Alignment = fyne.TextAlignTrailing
@@ -1583,7 +1583,7 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 		}
 	})
 	editBtn.Importance = widget.LowImportance
-	
+
 	deleteLabel := "删除"
 	if rec.IsDeleted {
 		deleteLabel = "恢复"
@@ -1594,7 +1594,7 @@ func (ui *FyneUI) buildGiftRow(rec GiftRecord, onEdit func(), onToggleDeleted fu
 		}
 	})
 	deleteBtn.Importance = widget.LowImportance
-	
+
 	actionBox := container.NewHBox(editBtn, deleteBtn)
 
 	// 使用网格布局，7列：ID、名称、图标、钻石、版本号、更新时间、操作
@@ -1716,7 +1716,7 @@ func (ui *FyneUI) giftTableCell(text string, align fyne.TextAlign, bold bool) fy
 	if bold {
 		lbl.TextStyle = fyne.TextStyle{Bold: true}
 	}
-	
+
 	// 使用简单的容器包装，确保文本水平显示
 	return container.NewPadded(lbl)
 }
@@ -1926,13 +1926,13 @@ func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
 	// 7列：ID、名称、图标、钻石、版本号、更新时间、操作
 	headers := []string{"ID", "名称", "图标", "钻石", "版本号", "更新时间", "操作"}
 	cells := make([]fyne.CanvasObject, 0, len(headers))
-	
+
 	// 为每个表头创建标签，使用标准 widget 以跟随主题
 	for _, h := range headers {
 		lbl := widget.NewLabel(h)
 		lbl.TextStyle = fyne.TextStyle{Bold: true}
 		lbl.Wrapping = fyne.TextWrapOff
-		
+
 		switch h {
 		case "名称":
 			lbl.Alignment = fyne.TextAlignLeading
@@ -1943,7 +1943,7 @@ func (ui *FyneUI) buildGiftHeaderRow() fyne.CanvasObject {
 		}
 		cells = append(cells, container.NewPadded(lbl))
 	}
-	
+
 	row := container.New(layout.NewGridLayoutWithColumns(len(headers)), cells...)
 	return container.NewPadded(row)
 }
@@ -2291,7 +2291,7 @@ func (ui *FyneUI) applyTheme(themeName string) {
 		ui.app.Settings().SetTheme(NewChineseTheme())
 	}
 	ui.userTheme = themeName
-	
+
 	// 刷新所有界面组件以响应主题变化
 	ui.refreshAllUIComponents()
 }
@@ -2354,15 +2354,17 @@ func (ui *FyneUI) createSettingsTab() fyne.CanvasObject {
 		debugLabel,
 	)
 
+	isInitializing := true
 	themeSelect := widget.NewSelect([]string{"系统默认", "浅色", "深色"}, func(val string) {
 		ui.applyTheme(val)
 		ui.saveThemePreference(val)
-		// 提示用户主题已更改
-		if ui.mainWin != nil {
+		// 只在用户手动更改时提示，初始化时不提示
+		if !isInitializing && ui.mainWin != nil {
 			dialog.ShowInformation("主题已更新", "主题设置已保存并应用", ui.mainWin)
 		}
 	})
 	themeSelect.SetSelected(ui.userTheme)
+	isInitializing = false
 	themeSection := container.NewVBox(
 		widget.NewLabel("主题设置"),
 		themeSelect,
@@ -2673,7 +2675,7 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 
 	if parsed.MessageType == "礼物消息" {
 		ui.handleGiftAssignment(roomID, pair.Detail)
-		
+
 		// 保存礼物记录到 gift_records 表
 		if persist && ui.db != nil {
 			log.Printf("🎁 [房间 %s] 手动连接收到礼物消息，准备保存到 gift_records", roomID)
@@ -2810,7 +2812,6 @@ func (ui *FyneUI) ensureGlobalAnchor(anchorID, anchorName string) {
 		log.Printf("⚠️  同步全局主播失败: %v", err)
 	}
 }
-
 
 func (ui *FyneUI) initializeRoomAnchors(roomTab *RoomTab) {
 	if roomTab == nil || ui.db == nil {
@@ -2989,14 +2990,14 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 	idEntry.SetPlaceHolder("主播ID")
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("主播名称")
-	
+
 	// 创建礼物选择器
 	giftFilterEntry := widget.NewEntry()
 	giftFilterEntry.SetPlaceHolder("筛选礼物...")
-	
+
 	selectedGifts := make(map[string]bool)
 	giftListData := make([]string, 0)
-	
+
 	giftList := widget.NewList(
 		func() int { return len(giftListData) },
 		func() fyne.CanvasObject {
@@ -3009,7 +3010,7 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 				hbox := item.(*fyne.Container)
 				check := hbox.Objects[0].(*widget.Check)
 				label := hbox.Objects[1].(*widget.Label)
-				
+
 				label.SetText(giftName)
 				check.SetChecked(selectedGifts[giftName])
 				check.OnChanged = func(checked bool) {
@@ -3023,12 +3024,12 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		},
 	)
 	giftList.Resize(fyne.NewSize(300, 200))
-	
+
 	// 加载礼物列表
 	loadGiftList := func(filter string) {
 		allGifts := ui.loadAllGiftNames()
 		giftListData = make([]string, 0)
-		
+
 		filterLower := strings.ToLower(strings.TrimSpace(filter))
 		for _, gift := range allGifts {
 			if filterLower == "" || strings.Contains(strings.ToLower(gift), filterLower) {
@@ -3037,17 +3038,17 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		}
 		giftList.Refresh()
 	}
-	
+
 	giftFilterEntry.OnChanged = func(text string) {
 		loadGiftList(text)
 	}
-	
+
 	// 初始加载礼物列表
 	loadGiftList("")
-	
+
 	giftsDisplay := widget.NewLabel("")
 	giftsDisplay.Wrapping = fyne.TextWrapWord
-	
+
 	updateGiftsDisplay := func() {
 		gifts := make([]string, 0, len(selectedGifts))
 		for gift := range selectedGifts {
@@ -3056,7 +3057,7 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		sort.Strings(gifts)
 		giftsDisplay.SetText(strings.Join(gifts, ", "))
 	}
-	
+
 	giftCountEntry := widget.NewEntry()
 	giftCountEntry.SetPlaceHolder("礼物数量")
 	scoreEntry := widget.NewEntry()
@@ -3094,27 +3095,27 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		for gift := range selectedGifts {
 			gifts = append(gifts, gift)
 		}
-		
+
 		// 将选中的礼物保存到主播
 		anchorID := strings.TrimSpace(idEntry.Text)
 		anchorName := strings.TrimSpace(nameEntry.Text)
-		
+
 		if anchorID == "" || anchorName == "" {
 			statusLabel.SetText("⚠️ 请填写主播ID和名称")
 			return
 		}
-		
+
 		giftCount, _ := strconv.Atoi(strings.TrimSpace(giftCountEntry.Text))
 		score, _ := strconv.Atoi(strings.TrimSpace(scoreEntry.Text))
 		giftStr := strings.Join(gifts, ",")
-		
+
 		tx, err := ui.db.Begin()
 		if err != nil {
 			statusLabel.SetText(fmt.Sprintf("⚠️ 数据库错误: %v", err))
 			return
 		}
 		defer tx.Rollback()
-		
+
 		_, err = tx.Exec(`
 			INSERT INTO room_anchors (room_id, anchor_id, anchor_name, bound_gifts, gift_count, score)
 			VALUES (?, ?, ?, ?, ?, ?)
@@ -3124,17 +3125,17 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 			             gift_count=excluded.gift_count,
 			             score=excluded.score
 		`, roomTab.RoomID, anchorID, anchorName, giftStr, giftCount, score)
-		
+
 		if err != nil {
 			statusLabel.SetText(fmt.Sprintf("⚠️ 保存失败: %v", err))
 			return
 		}
-		
+
 		if err := tx.Commit(); err != nil {
 			statusLabel.SetText(fmt.Sprintf("⚠️ 保存失败: %v", err))
 			return
 		}
-		
+
 		ui.ensureGlobalAnchor(anchorID, anchorName)
 		ui.bindGiftsToAnchor(roomTab.RoomID, anchorID, giftStr)
 		ui.refreshRoomTables(roomTab)
@@ -3155,7 +3156,7 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		if len(row) >= 5 {
 			idEntry.SetText(row[0])
 			nameEntry.SetText(row[1])
-			
+
 			// 解析绑定的礼物并更新选择状态
 			selectedGifts = make(map[string]bool)
 			if row[2] != "" {
@@ -3169,7 +3170,7 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 			}
 			updateGiftsDisplay()
 			giftList.Refresh()
-			
+
 			giftCountEntry.SetText(row[3])
 			scoreEntry.SetText(row[4])
 		}
@@ -3182,7 +3183,7 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		widget.NewLabel("已选择:"),
 		container.NewScroll(giftsDisplay),
 	)
-	
+
 	form := container.NewVBox(
 		widget.NewLabel("选择全局主播"),
 		container.NewHBox(anchorPicker, widget.NewButton("刷新", func() {
@@ -3309,9 +3310,9 @@ func (ui *FyneUI) showGiftRecordWindow(roomID string) {
 		dialog.ShowInformation("提示", "暂无礼物记录", ui.mainWin)
 		return
 	}
-	
+
 	statusLabel := widget.NewLabel(fmt.Sprintf("共 %d 条礼物记录", len(rows)-1))
-	
+
 	table := widget.NewTable(
 		func() (int, int) { return len(rows), len(rows[0]) },
 		func() fyne.CanvasObject { return widget.NewLabel("") },
@@ -3321,21 +3322,21 @@ func (ui *FyneUI) showGiftRecordWindow(roomID string) {
 			}
 		},
 	)
-	
+
 	// 设置右键菜单
 	table.OnSelected = func(id widget.TableCellID) {
 		if id.Row <= 0 || id.Row >= len(rows) {
 			return
 		}
-		
+
 		row := rows[id.Row]
 		if len(row) < 5 {
 			return
 		}
-		
+
 		giftName := row[1]
 		currentAnchor := row[4]
-		
+
 		// 如果没有主播，显示绑定选项
 		if strings.TrimSpace(currentAnchor) == "" {
 			ui.showBindAnchorMenu(roomID, giftName, func() {
@@ -3347,7 +3348,7 @@ func (ui *FyneUI) showGiftRecordWindow(roomID string) {
 			})
 		}
 	}
-	
+
 	win := ui.app.NewWindow(fmt.Sprintf("房间 %s 礼物记录", roomID))
 	content := container.NewBorder(
 		statusLabel,
@@ -3364,14 +3365,14 @@ func (ui *FyneUI) showBindAnchorMenu(roomID, giftName string, onBound func()) {
 	if ui.mainWin == nil || ui.db == nil {
 		return
 	}
-	
+
 	// 查询该房间的主播列表
 	anchors, err := ui.loadRoomAnchors(roomID)
 	if err != nil || len(anchors) == 0 {
 		dialog.ShowInformation("提示", "该房间暂无主播，请先在主播管理中添加主播", ui.mainWin)
 		return
 	}
-	
+
 	anchorOptions := make([]string, 0, len(anchors))
 	anchorMap := make(map[string]string)
 	for _, anchor := range anchors {
@@ -3379,12 +3380,12 @@ func (ui *FyneUI) showBindAnchorMenu(roomID, giftName string, onBound func()) {
 		anchorOptions = append(anchorOptions, option)
 		anchorMap[option] = anchor.ID
 	}
-	
+
 	anchorSelect := widget.NewSelect(anchorOptions, nil)
 	anchorSelect.PlaceHolder = "选择主播"
-	
+
 	statusLabel := widget.NewLabel("")
-	
+
 	bindDialog := dialog.NewCustomConfirm(
 		"绑定礼物到主播",
 		"绑定",
@@ -3399,42 +3400,42 @@ func (ui *FyneUI) showBindAnchorMenu(roomID, giftName string, onBound func()) {
 			if !ok || anchorSelect.Selected == "" {
 				return
 			}
-			
+
 			anchorID := anchorMap[anchorSelect.Selected]
 			if anchorID == "" {
 				return
 			}
-			
+
 			// 绑定礼物到主播
 			_, err := ui.db.Exec(`
 				INSERT INTO room_gift_bindings (room_id, gift_name, anchor_id)
 				VALUES (?, ?, ?)
 				ON CONFLICT(room_id, gift_name) DO UPDATE SET anchor_id=excluded.anchor_id
 			`, roomID, giftName, anchorID)
-			
+
 			if err != nil {
 				statusLabel.SetText(fmt.Sprintf("绑定失败: %v", err))
 				return
 			}
-			
+
 			// 更新现有的礼物记录
 			_, err = ui.db.Exec(`
 				UPDATE gift_records
 				SET anchor_id = ?, anchor_name = (SELECT anchor_name FROM anchors WHERE anchor_id = ?)
 				WHERE room_id = ? AND gift_name = ? AND (anchor_id IS NULL OR anchor_id = '')
 			`, anchorID, anchorID, roomID, giftName)
-			
+
 			if err != nil {
 				log.Printf("⚠️ 更新礼物记录失败: %v", err)
 			}
-			
+
 			if onBound != nil {
 				onBound()
 			}
 		},
 		ui.mainWin,
 	)
-	
+
 	bindDialog.Resize(fyne.NewSize(400, 200))
 	bindDialog.Show()
 }
@@ -3449,7 +3450,7 @@ func (ui *FyneUI) loadRoomAnchors(roomID string) ([]RoomAnchor, error) {
 	if ui.db == nil {
 		return nil, fmt.Errorf("数据库未初始化")
 	}
-	
+
 	rows, err := ui.db.Query(`
 		SELECT anchor_id, anchor_name
 		FROM room_anchors
@@ -3460,7 +3461,7 @@ func (ui *FyneUI) loadRoomAnchors(roomID string) ([]RoomAnchor, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	anchors := make([]RoomAnchor, 0)
 	for rows.Next() {
 		var anchor RoomAnchor
@@ -3469,7 +3470,7 @@ func (ui *FyneUI) loadRoomAnchors(roomID string) ([]RoomAnchor, error) {
 		}
 		anchors = append(anchors, anchor)
 	}
-	
+
 	return anchors, nil
 }
 
@@ -3478,7 +3479,7 @@ func (ui *FyneUI) loadAllGiftNames() []string {
 	if ui.db == nil {
 		return []string{}
 	}
-	
+
 	rows, err := ui.db.Query(`
 		SELECT DISTINCT gift_name
 		FROM gifts
@@ -3489,7 +3490,7 @@ func (ui *FyneUI) loadAllGiftNames() []string {
 		return []string{}
 	}
 	defer rows.Close()
-	
+
 	names := make([]string, 0)
 	for rows.Next() {
 		var name string
@@ -3500,7 +3501,7 @@ func (ui *FyneUI) loadAllGiftNames() []string {
 			names = append(names, name)
 		}
 	}
-	
+
 	return names
 }
 
@@ -3690,7 +3691,7 @@ func (ui *FyneUI) refreshAllUIComponents() {
 		if ui.tabContainer != nil {
 			ui.tabContainer.Refresh()
 		}
-		
+
 		// 刷新所有房间Tab
 		for _, roomTab := range ui.roomTabs {
 			if roomTab.GiftTable != nil {
@@ -3709,7 +3710,7 @@ func (ui *FyneUI) refreshAllUIComponents() {
 				roomTab.SubTabs.Refresh()
 			}
 		}
-		
+
 		// 刷新主窗口
 		ui.mainWin.Content().Refresh()
 	}
