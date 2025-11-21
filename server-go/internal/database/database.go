@@ -53,6 +53,7 @@ func (db *DB) initSchema() error {
 	-- 房间信息表
 	CREATE TABLE IF NOT EXISTS rooms (
 		room_id TEXT PRIMARY KEY,
+		live_room_id TEXT,
 		room_title TEXT,
 		anchor_name TEXT,
 		first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -76,7 +77,7 @@ func (db *DB) initSchema() error {
 		record_id INTEGER PRIMARY KEY AUTOINCREMENT,
 		session_id INTEGER NOT NULL,
 		room_id TEXT NOT NULL,
-		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		user_id TEXT,
 		user_nickname TEXT,
 		gift_id TEXT,
@@ -84,23 +85,11 @@ func (db *DB) initSchema() error {
 		gift_count INTEGER DEFAULT 1,
 		gift_diamond_value INTEGER DEFAULT 0,
 		anchor_id TEXT,
+		anchor_name TEXT,
 		FOREIGN KEY (session_id) REFERENCES live_sessions(session_id),
 		FOREIGN KEY (room_id) REFERENCES rooms(room_id)
 	);
 
-	-- 消息记录表
-	CREATE TABLE IF NOT EXISTS message_records (
-		record_id INTEGER PRIMARY KEY AUTOINCREMENT,
-		session_id INTEGER NOT NULL,
-		room_id TEXT NOT NULL,
-		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		message_type TEXT NOT NULL,
-		user_id TEXT,
-		user_nickname TEXT,
-		content TEXT,
-		FOREIGN KEY (session_id) REFERENCES live_sessions(session_id),
-		FOREIGN KEY (room_id) REFERENCES rooms(room_id)
-	);
 
 	-- 主播配置表
 	CREATE TABLE IF NOT EXISTS anchors (
@@ -146,9 +135,7 @@ func (db *DB) initSchema() error {
 	-- 索引
 	CREATE INDEX IF NOT EXISTS idx_gifts_session ON gift_records(session_id);
 	CREATE INDEX IF NOT EXISTS idx_gifts_room ON gift_records(room_id);
-	CREATE INDEX IF NOT EXISTS idx_gifts_timestamp ON gift_records(timestamp);
-	CREATE INDEX IF NOT EXISTS idx_messages_session ON message_records(session_id);
-	CREATE INDEX IF NOT EXISTS idx_messages_room ON message_records(room_id);
+	CREATE INDEX IF NOT EXISTS idx_gifts_timestamp ON gift_records(create_time);
 	CREATE INDEX IF NOT EXISTS idx_sessions_room ON live_sessions(room_id);
 	CREATE INDEX IF NOT EXISTS idx_room_anchors_room ON room_anchors(room_id);
 	CREATE INDEX IF NOT EXISTS idx_room_gift_binding ON room_gift_bindings(room_id);
@@ -160,7 +147,16 @@ func (db *DB) initSchema() error {
 	if err := ensureAnchorExtraColumns(db.conn); err != nil {
 		return err
 	}
-	return ensureGiftTable(db.conn)
+	if err := ensureGiftTable(db.conn); err != nil {
+		return err
+	}
+	if err := ensureLiveRoomIDColumn(db.conn); err != nil {
+		return err
+	}
+	if err := ensureGiftRecordsColumns(db.conn); err != nil {
+		return err
+	}
+	return dropMessageRecordsTable(db.conn)
 }
 
 // GetConnection 获取原始数据库连接（用于复杂查询）
@@ -292,6 +288,53 @@ func ensureGiftTable(conn *sql.DB) error {
 		return err
 	}
 	if err := addColumnIfMissing(conn, "gifts", "updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureLiveRoomIDColumn(conn *sql.DB) error {
+	return addColumnIfMissing(conn, "rooms", "live_room_id", "TEXT")
+}
+
+func ensureGiftRecordsColumns(conn *sql.DB) error {
+	// 添加 anchor_name 列
+	if err := addColumnIfMissing(conn, "gift_records", "anchor_name", "TEXT"); err != nil {
+		return err
+	}
+	
+	// 检查是否存在 timestamp 列，如果存在但没有 create_time 列，则需要迁移数据
+	hasTimestamp, err := columnExists(conn, "gift_records", "timestamp")
+	if err != nil {
+		return err
+	}
+	hasCreateTime, err := columnExists(conn, "gift_records", "create_time")
+	if err != nil {
+		return err
+	}
+	
+	// 如果 timestamp 存在但 create_time 不存在，迁移数据
+	if hasTimestamp && !hasCreateTime {
+		// 添加 create_time 列
+		if err := addColumnIfMissing(conn, "gift_records", "create_time", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); err != nil {
+			return err
+		}
+		// 将 timestamp 的数据复制到 create_time
+		if _, err := conn.Exec(`UPDATE gift_records SET create_time = timestamp WHERE create_time IS NULL`); err != nil {
+			return err
+		}
+	}
+	
+	return nil
+}
+
+func dropMessageRecordsTable(conn *sql.DB) error {
+	exists, err := tableExists(conn, "message_records")
+	if err != nil {
+		return err
+	}
+	if exists {
+		_, err := conn.Exec(`DROP TABLE IF EXISTS message_records`)
 		return err
 	}
 	return nil

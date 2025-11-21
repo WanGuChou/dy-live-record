@@ -122,7 +122,6 @@ type RoomTab struct {
 	SegmentRows          [][]string
 	AnchorIDEntry        *widget.Entry
 	AnchorNameEntry      *widget.Entry
-	AnchorGiftsEntry     *widget.Entry
 	AnchorGiftCountEntry *widget.Entry
 	AnchorScoreEntry     *widget.Entry
 	AnchorStatus         *widget.Label
@@ -2074,7 +2073,7 @@ func (ui *FyneUI) loadHistoricalMessages(roomID string) []*MessagePair {
 		return nil
 	}
 	tableName := database.RoomMessageTableName(roomID)
-	query := fmt.Sprintf(`SELECT timestamp, display, message_type, method, raw_payload, parsed_json FROM %s ORDER BY timestamp DESC LIMIT 200`, tableName)
+	query := fmt.Sprintf(`SELECT COALESCE(create_time, timestamp), display, message_type, method, raw_payload, parsed_json FROM %s ORDER BY COALESCE(create_time, timestamp) DESC LIMIT 200`, tableName)
 	rows, err := ui.db.Query(query)
 	if err != nil {
 		return nil
@@ -2158,12 +2157,12 @@ func (ui *FyneUI) exportRoomGifts(roomID string) (string, error) {
 	}
 
 	rows, err := ui.db.Query(`
-		SELECT gr.timestamp, gr.gift_name, gr.gift_count, gr.user_nickname,
-		       gr.gift_diamond_value, COALESCE(a.anchor_name, gr.anchor_id) AS receiver
+		SELECT COALESCE(gr.create_time, gr.timestamp), gr.gift_name, gr.gift_count, gr.user_nickname,
+		       gr.gift_diamond_value, COALESCE(gr.anchor_name, a.anchor_name, gr.anchor_id) AS receiver
 		FROM gift_records gr
 		LEFT JOIN anchors a ON gr.anchor_id = a.anchor_id
 		WHERE gr.room_id = ?
-		ORDER BY gr.timestamp ASC
+		ORDER BY COALESCE(gr.create_time, gr.timestamp) ASC
 	`, roomID)
 	if err != nil {
 		return "", err
@@ -2804,59 +2803,6 @@ func (ui *FyneUI) ensureGlobalAnchor(anchorID, anchorName string) {
 	}
 }
 
-func (ui *FyneUI) saveRoomAnchorFromForm(roomTab *RoomTab) {
-	if roomTab == nil || ui.db == nil {
-		return
-	}
-
-	updateStatus := func(text string) {
-		if roomTab.AnchorStatus != nil {
-			roomTab.AnchorStatus.SetText(text)
-		}
-	}
-
-	anchorID := strings.TrimSpace(roomTab.AnchorIDEntry.Text)
-	anchorName := strings.TrimSpace(roomTab.AnchorNameEntry.Text)
-	gifts := strings.TrimSpace(roomTab.AnchorGiftsEntry.Text)
-	giftCount, _ := strconv.Atoi(strings.TrimSpace(roomTab.AnchorGiftCountEntry.Text))
-	score, _ := strconv.Atoi(strings.TrimSpace(roomTab.AnchorScoreEntry.Text))
-
-	if anchorID == "" || anchorName == "" {
-		updateStatus("⚠️ 请填写主播ID和名称")
-		return
-	}
-
-	tx, err := ui.db.Begin()
-	if err != nil {
-		updateStatus(fmt.Sprintf("⚠️ 数据库错误: %v", err))
-		return
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec(`
-		INSERT INTO room_anchors (room_id, anchor_id, anchor_name, bound_gifts, gift_count, score)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(room_id, anchor_id)
-		DO UPDATE SET anchor_name=excluded.anchor_name,
-		             bound_gifts=excluded.bound_gifts,
-		             gift_count=excluded.gift_count,
-		             score=excluded.score
-	`, roomTab.RoomID, anchorID, anchorName, gifts, giftCount, score)
-	if err != nil {
-		updateStatus(fmt.Sprintf("⚠️ 保存失败: %v", err))
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		updateStatus(fmt.Sprintf("⚠️ 保存失败: %v", err))
-		return
-	}
-
-	ui.ensureGlobalAnchor(anchorID, anchorName)
-	ui.bindGiftsToAnchor(roomTab.RoomID, anchorID, gifts)
-	ui.refreshRoomTables(roomTab)
-	updateStatus("✅ 主播信息已保存")
-}
 
 func (ui *FyneUI) initializeRoomAnchors(roomTab *RoomTab) {
 	if roomTab == nil || ui.db == nil {
@@ -3035,9 +2981,74 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 	idEntry.SetPlaceHolder("主播ID")
 	nameEntry := widget.NewEntry()
 	nameEntry.SetPlaceHolder("主播名称")
-	giftsEntry := widget.NewMultiLineEntry()
-	giftsEntry.SetPlaceHolder("绑定礼物（逗号分隔）")
-	giftsEntry.SetMinRowsVisible(2)
+	
+	// 创建礼物选择器
+	giftFilterEntry := widget.NewEntry()
+	giftFilterEntry.SetPlaceHolder("筛选礼物...")
+	
+	selectedGifts := make(map[string]bool)
+	giftListData := make([]string, 0)
+	
+	giftList := widget.NewList(
+		func() int { return len(giftListData) },
+		func() fyne.CanvasObject {
+			check := widget.NewCheck("", nil)
+			return container.NewHBox(check, widget.NewLabel(""))
+		},
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			if id < len(giftListData) {
+				giftName := giftListData[id]
+				hbox := item.(*fyne.Container)
+				check := hbox.Objects[0].(*widget.Check)
+				label := hbox.Objects[1].(*widget.Label)
+				
+				label.SetText(giftName)
+				check.SetChecked(selectedGifts[giftName])
+				check.OnChanged = func(checked bool) {
+					if checked {
+						selectedGifts[giftName] = true
+					} else {
+						delete(selectedGifts, giftName)
+					}
+				}
+			}
+		},
+	)
+	giftList.Resize(fyne.NewSize(300, 200))
+	
+	// 加载礼物列表
+	loadGiftList := func(filter string) {
+		allGifts := ui.loadAllGiftNames()
+		giftListData = make([]string, 0)
+		
+		filterLower := strings.ToLower(strings.TrimSpace(filter))
+		for _, gift := range allGifts {
+			if filterLower == "" || strings.Contains(strings.ToLower(gift), filterLower) {
+				giftListData = append(giftListData, gift)
+			}
+		}
+		giftList.Refresh()
+	}
+	
+	giftFilterEntry.OnChanged = func(text string) {
+		loadGiftList(text)
+	}
+	
+	// 初始加载礼物列表
+	loadGiftList("")
+	
+	giftsDisplay := widget.NewLabel("")
+	giftsDisplay.Wrapping = fyne.TextWrapWord
+	
+	updateGiftsDisplay := func() {
+		gifts := make([]string, 0, len(selectedGifts))
+		for gift := range selectedGifts {
+			gifts = append(gifts, gift)
+		}
+		sort.Strings(gifts)
+		giftsDisplay.SetText(strings.Join(gifts, ", "))
+	}
+	
 	giftCountEntry := widget.NewEntry()
 	giftCountEntry.SetPlaceHolder("礼物数量")
 	scoreEntry := widget.NewEntry()
@@ -3046,7 +3057,6 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 
 	roomTab.AnchorIDEntry = idEntry
 	roomTab.AnchorNameEntry = nameEntry
-	roomTab.AnchorGiftsEntry = giftsEntry
 	roomTab.AnchorGiftCountEntry = giftCountEntry
 	roomTab.AnchorScoreEntry = scoreEntry
 	roomTab.AnchorStatus = statusLabel
@@ -3071,9 +3081,57 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 	updateInitBtnState(initBtn)
 
 	saveBtn := widget.NewButton("保存/更新", func() {
-		ui.saveRoomAnchorFromForm(roomTab)
+		updateGiftsDisplay()
+		gifts := make([]string, 0, len(selectedGifts))
+		for gift := range selectedGifts {
+			gifts = append(gifts, gift)
+		}
+		
+		// 将选中的礼物保存到主播
+		anchorID := strings.TrimSpace(idEntry.Text)
+		anchorName := strings.TrimSpace(nameEntry.Text)
+		
+		if anchorID == "" || anchorName == "" {
+			statusLabel.SetText("⚠️ 请填写主播ID和名称")
+			return
+		}
+		
+		giftCount, _ := strconv.Atoi(strings.TrimSpace(giftCountEntry.Text))
+		score, _ := strconv.Atoi(strings.TrimSpace(scoreEntry.Text))
+		giftStr := strings.Join(gifts, ",")
+		
+		tx, err := ui.db.Begin()
+		if err != nil {
+			statusLabel.SetText(fmt.Sprintf("⚠️ 数据库错误: %v", err))
+			return
+		}
+		defer tx.Rollback()
+		
+		_, err = tx.Exec(`
+			INSERT INTO room_anchors (room_id, anchor_id, anchor_name, bound_gifts, gift_count, score)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(room_id, anchor_id)
+			DO UPDATE SET anchor_name=excluded.anchor_name,
+			             bound_gifts=excluded.bound_gifts,
+			             gift_count=excluded.gift_count,
+			             score=excluded.score
+		`, roomTab.RoomID, anchorID, anchorName, giftStr, giftCount, score)
+		
+		if err != nil {
+			statusLabel.SetText(fmt.Sprintf("⚠️ 保存失败: %v", err))
+			return
+		}
+		
+		if err := tx.Commit(); err != nil {
+			statusLabel.SetText(fmt.Sprintf("⚠️ 保存失败: %v", err))
+			return
+		}
+		
+		ui.ensureGlobalAnchor(anchorID, anchorName)
+		ui.bindGiftsToAnchor(roomTab.RoomID, anchorID, giftStr)
 		ui.refreshRoomTables(roomTab)
 		updateInitBtnState(initBtn)
+		statusLabel.SetText("✅ 主播信息已保存")
 	})
 
 	refreshBtn := widget.NewButton("刷新", func() {
@@ -3089,12 +3147,34 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		if len(row) >= 5 {
 			idEntry.SetText(row[0])
 			nameEntry.SetText(row[1])
-			giftsEntry.SetText(row[2])
+			
+			// 解析绑定的礼物并更新选择状态
+			selectedGifts = make(map[string]bool)
+			if row[2] != "" {
+				gifts := strings.Split(row[2], ",")
+				for _, gift := range gifts {
+					gift = strings.TrimSpace(gift)
+					if gift != "" {
+						selectedGifts[gift] = true
+					}
+				}
+			}
+			updateGiftsDisplay()
+			giftList.Refresh()
+			
 			giftCountEntry.SetText(row[3])
 			scoreEntry.SetText(row[4])
 		}
 	}
 
+	giftSection := container.NewVBox(
+		widget.NewLabel("绑定礼物"),
+		giftFilterEntry,
+		container.NewScroll(giftList),
+		widget.NewLabel("已选择:"),
+		container.NewScroll(giftsDisplay),
+	)
+	
 	form := container.NewVBox(
 		widget.NewLabel("选择全局主播"),
 		container.NewHBox(anchorPicker, widget.NewButton("刷新", func() {
@@ -3106,8 +3186,7 @@ func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
 		idEntry,
 		widget.NewLabel("主播名称"),
 		nameEntry,
-		widget.NewLabel("绑定礼物（逗号分隔）"),
-		giftsEntry,
+		giftSection,
 		container.NewGridWithColumns(2,
 			container.NewVBox(widget.NewLabel("礼物数量"), giftCountEntry),
 			container.NewVBox(widget.NewLabel("钻石总值"), scoreEntry),
@@ -3218,9 +3297,13 @@ func (ui *FyneUI) showMessageDetail(roomTab *RoomTab, id widget.ListItemID) {
 
 func (ui *FyneUI) showGiftRecordWindow(roomID string) {
 	rows := ui.loadRoomGiftRows(roomID)
-	if len(rows) == 0 {
+	if len(rows) <= 1 {
+		dialog.ShowInformation("提示", "暂无礼物记录", ui.mainWin)
 		return
 	}
+	
+	statusLabel := widget.NewLabel(fmt.Sprintf("共 %d 条礼物记录", len(rows)-1))
+	
 	table := widget.NewTable(
 		func() (int, int) { return len(rows), len(rows[0]) },
 		func() fyne.CanvasObject { return widget.NewLabel("") },
@@ -3230,10 +3313,187 @@ func (ui *FyneUI) showGiftRecordWindow(roomID string) {
 			}
 		},
 	)
+	
+	// 设置右键菜单
+	table.OnSelected = func(id widget.TableCellID) {
+		if id.Row <= 0 || id.Row >= len(rows) {
+			return
+		}
+		
+		row := rows[id.Row]
+		if len(row) < 5 {
+			return
+		}
+		
+		giftName := row[1]
+		currentAnchor := row[4]
+		
+		// 如果没有主播，显示绑定选项
+		if strings.TrimSpace(currentAnchor) == "" {
+			ui.showBindAnchorMenu(roomID, giftName, func() {
+				// 刷新礼物记录
+				newRows := ui.loadRoomGiftRows(roomID)
+				rows = newRows
+				table.Refresh()
+				statusLabel.SetText(fmt.Sprintf("共 %d 条礼物记录 (已刷新)", len(rows)-1))
+			})
+		}
+	}
+	
 	win := ui.app.NewWindow(fmt.Sprintf("房间 %s 礼物记录", roomID))
-	win.SetContent(container.NewScroll(table))
-	win.Resize(fyne.NewSize(700, 400))
+	content := container.NewBorder(
+		statusLabel,
+		nil, nil, nil,
+		container.NewScroll(table),
+	)
+	win.SetContent(content)
+	win.Resize(fyne.NewSize(800, 500))
 	win.Show()
+}
+
+// showBindAnchorMenu 显示绑定主播的菜单
+func (ui *FyneUI) showBindAnchorMenu(roomID, giftName string, onBound func()) {
+	if ui.mainWin == nil || ui.db == nil {
+		return
+	}
+	
+	// 查询该房间的主播列表
+	anchors, err := ui.loadRoomAnchors(roomID)
+	if err != nil || len(anchors) == 0 {
+		dialog.ShowInformation("提示", "该房间暂无主播，请先在主播管理中添加主播", ui.mainWin)
+		return
+	}
+	
+	anchorOptions := make([]string, 0, len(anchors))
+	anchorMap := make(map[string]string)
+	for _, anchor := range anchors {
+		option := fmt.Sprintf("%s | %s", anchor.ID, anchor.Name)
+		anchorOptions = append(anchorOptions, option)
+		anchorMap[option] = anchor.ID
+	}
+	
+	anchorSelect := widget.NewSelect(anchorOptions, nil)
+	anchorSelect.PlaceHolder = "选择主播"
+	
+	statusLabel := widget.NewLabel("")
+	
+	bindDialog := dialog.NewCustomConfirm(
+		"绑定礼物到主播",
+		"绑定",
+		"取消",
+		container.NewVBox(
+			widget.NewLabel(fmt.Sprintf("礼物: %s", giftName)),
+			widget.NewLabel("选择接收主播:"),
+			anchorSelect,
+			statusLabel,
+		),
+		func(ok bool) {
+			if !ok || anchorSelect.Selected == "" {
+				return
+			}
+			
+			anchorID := anchorMap[anchorSelect.Selected]
+			if anchorID == "" {
+				return
+			}
+			
+			// 绑定礼物到主播
+			_, err := ui.db.Exec(`
+				INSERT INTO room_gift_bindings (room_id, gift_name, anchor_id)
+				VALUES (?, ?, ?)
+				ON CONFLICT(room_id, gift_name) DO UPDATE SET anchor_id=excluded.anchor_id
+			`, roomID, giftName, anchorID)
+			
+			if err != nil {
+				statusLabel.SetText(fmt.Sprintf("绑定失败: %v", err))
+				return
+			}
+			
+			// 更新现有的礼物记录
+			_, err = ui.db.Exec(`
+				UPDATE gift_records
+				SET anchor_id = ?, anchor_name = (SELECT anchor_name FROM anchors WHERE anchor_id = ?)
+				WHERE room_id = ? AND gift_name = ? AND (anchor_id IS NULL OR anchor_id = '')
+			`, anchorID, anchorID, roomID, giftName)
+			
+			if err != nil {
+				log.Printf("⚠️ 更新礼物记录失败: %v", err)
+			}
+			
+			if onBound != nil {
+				onBound()
+			}
+		},
+		ui.mainWin,
+	)
+	
+	bindDialog.Resize(fyne.NewSize(400, 200))
+	bindDialog.Show()
+}
+
+type RoomAnchor struct {
+	ID   string
+	Name string
+}
+
+// loadRoomAnchors 加载房间主播列表
+func (ui *FyneUI) loadRoomAnchors(roomID string) ([]RoomAnchor, error) {
+	if ui.db == nil {
+		return nil, fmt.Errorf("数据库未初始化")
+	}
+	
+	rows, err := ui.db.Query(`
+		SELECT anchor_id, anchor_name
+		FROM room_anchors
+		WHERE room_id = ?
+		ORDER BY score DESC
+	`, roomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	anchors := make([]RoomAnchor, 0)
+	for rows.Next() {
+		var anchor RoomAnchor
+		if err := rows.Scan(&anchor.ID, &anchor.Name); err != nil {
+			continue
+		}
+		anchors = append(anchors, anchor)
+	}
+	
+	return anchors, nil
+}
+
+// loadAllGiftNames 加载所有礼物名称
+func (ui *FyneUI) loadAllGiftNames() []string {
+	if ui.db == nil {
+		return []string{}
+	}
+	
+	rows, err := ui.db.Query(`
+		SELECT DISTINCT gift_name
+		FROM gifts
+		WHERE COALESCE(is_deleted, 0) = 0
+		ORDER BY gift_name
+	`)
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+	
+	names := make([]string, 0)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		if strings.TrimSpace(name) != "" {
+			names = append(names, name)
+		}
+	}
+	
+	return names
 }
 
 func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
@@ -3243,12 +3503,12 @@ func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
 	}
 
 	query := `
-		SELECT gr.timestamp, gr.gift_name, gr.gift_count, gr.gift_diamond_value,
-		       COALESCE(a.anchor_name, gr.anchor_id) AS receiver, gr.user_nickname
+		SELECT COALESCE(gr.create_time, gr.timestamp, CURRENT_TIMESTAMP), gr.gift_name, gr.gift_count, gr.gift_diamond_value,
+		       COALESCE(gr.anchor_name, a.anchor_name, gr.anchor_id, '') AS receiver, gr.user_nickname
 		FROM gift_records gr
 		LEFT JOIN anchors a ON gr.anchor_id = a.anchor_id
 		WHERE gr.room_id = ?
-		ORDER BY gr.timestamp DESC
+		ORDER BY COALESCE(gr.create_time, gr.timestamp) DESC
 		LIMIT 200
 	`
 

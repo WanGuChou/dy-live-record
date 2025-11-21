@@ -166,6 +166,9 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 		return
 	}
 
+	// 打印 WSS 链接地址
+	log.Printf("🔗 WSS 链接: %s", url)
+
 	// 提取房间号
 	roomID := extractRoomID(url)
 	if roomID == "" {
@@ -295,8 +298,6 @@ func (s *WebSocketServer) saveMessage(roomID string, sessionID int64, parsed *pa
 	switch parsed.MessageType {
 	case "礼物消息":
 		s.saveGiftRecord(roomID, sessionID, parsed)
-	case "聊天消息", "进入直播间", "关注消息":
-		s.saveMessageRecord(roomID, sessionID, parsed)
 	}
 }
 
@@ -307,7 +308,11 @@ func (s *WebSocketServer) PersistRoomMessage(roomID string, parsed *parser.Parse
 
 	detail := parsed.Detail
 
+	// 生成 msgId
+	msgID := fmt.Sprintf("%d_%s", time.Now().UnixNano(), parsed.Method)
+
 	record := &database.RoomMessageRecord{
+		MsgID:       msgID,
 		RoomID:      roomID,
 		Method:      parsed.Method,
 		MessageType: parsed.MessageType,
@@ -377,26 +382,33 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 	diamondCount := toInt(detail["diamondCount"])
 	content := toString(detail["content"])
 	anchorID := toString(detail["anchorId"])
+	anchorName := toString(detail["anchorName"])
+
+	// 尝试分配礼物给主播
+	if anchorID == "" {
+		var err error
+		anchorID, err = s.giftAllocator.AllocateGift(giftName, content)
+		if err == nil && anchorID != "" {
+			// 查询主播名称
+			var name string
+			err := s.db.GetConnection().QueryRow(`SELECT anchor_name FROM anchors WHERE anchor_id = ?`, anchorID).Scan(&name)
+			if err == nil {
+				anchorName = name
+			}
+		}
+	}
 
 	_, err := s.db.GetConnection().Exec(`
 		INSERT INTO gift_records (
-			session_id, room_id, user_nickname, gift_name, gift_count, gift_diamond_value
-		) VALUES (?, ?, ?, ?, ?, ?)
-	`, sessionID, roomID, userNickname, giftName, giftCount, diamondCount)
+			session_id, room_id, user_nickname, gift_name, gift_count, gift_diamond_value, anchor_id, anchor_name
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, sessionID, roomID, userNickname, giftName, giftCount, diamondCount, anchorID, anchorName)
 
 	if err != nil {
 		log.Printf("❌ 保存礼物记录失败: %v", err)
 		return
 	}
 
-	// 尝试分配礼物给主播
-	if anchorID == "" {
-		var err error
-		anchorID, err = s.giftAllocator.AllocateGift(giftName, content)
-		if err != nil {
-			return
-		}
-	}
 	if anchorID != "" {
 		// 记录主播业绩
 		if err := s.giftAllocator.RecordAnchorPerformance(anchorID, giftName, diamondCount); err != nil {
@@ -405,23 +417,6 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 	}
 }
 
-// saveMessageRecord 保存消息记录
-func (s *WebSocketServer) saveMessageRecord(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
-	detail := parsed.Detail
-	messageType := toString(detail["messageType"])
-	userNickname := toString(detail["user"])
-	content := toString(detail["content"])
-
-	_, err := s.db.GetConnection().Exec(`
-		INSERT INTO message_records (
-			session_id, room_id, message_type, user_nickname, content
-		) VALUES (?, ?, ?, ?, ?)
-	`, sessionID, roomID, messageType, userNickname, content)
-
-	if err != nil {
-		log.Printf("❌ 保存消息记录失败: %v", err)
-	}
-}
 
 // extractRoomID 从URL中提取房间号
 func extractRoomID(url string) string {
