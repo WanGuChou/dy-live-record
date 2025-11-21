@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	douyinLive "github.com/jwwsjlm/douyinLive"
 	newdouyin "github.com/jwwsjlm/douyinLive/generated/new_douyin"
@@ -193,4 +195,109 @@ func (ui *FyneUI) ensureManualRoomRecord(roomID string) error {
 
 	log.Printf("✅ [手动房间 %s] 新房间记录已创建", roomID)
 	return nil
+}
+
+// saveManualGiftRecord 保存手动房间的礼物记录到 gift_records 表
+func (ui *FyneUI) saveManualGiftRecord(roomID string, parsed *parser.ParsedProtoMessage) error {
+	if ui.db == nil || parsed == nil || parsed.Detail == nil {
+		return fmt.Errorf("数据库或消息数据无效")
+	}
+
+	log.Printf("🎁 [手动房间 %s] 开始保存礼物记录", roomID)
+
+	// 获取或创建 session_id
+	sessionID, err := ui.getOrCreateManualSession(roomID)
+	if err != nil {
+		return fmt.Errorf("获取 session_id 失败: %w", err)
+	}
+
+	// 生成 msgID
+	msgID := fmt.Sprintf("%d_%s_%d", time.Now().UnixNano(), parsed.Method, sessionID)
+	
+	detail := parsed.Detail
+	userID := toString(detail["userId"])
+	userNickname := toString(detail["user"])
+	giftID := toString(detail["giftId"])
+	giftName := toString(detail["giftName"])
+	giftCount := toInt(detail["groupCount"])
+	if giftCount == 0 {
+		giftCount = 1
+	}
+	diamondCount := toInt(detail["diamondCount"])
+	anchorID := toString(detail["anchorId"])
+	anchorName := toString(detail["anchorName"])
+
+	log.Printf("🎁 [手动房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d", 
+		roomID, userNickname, userID, giftName, giftID, giftCount, diamondCount)
+
+	log.Printf("💾 [手动房间 %s] 准备插入 gift_records 表，msgID: %s, sessionID: %d", roomID, msgID, sessionID)
+
+	result, err := ui.db.Exec(`
+		INSERT INTO gift_records (
+			msg_id, session_id, room_id, user_id, user_nickname, gift_id, gift_name, 
+			gift_count, gift_diamond_value, anchor_id, anchor_name
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, msgID, sessionID, roomID, userID, userNickname, giftID, giftName, giftCount, diamondCount, anchorID, anchorName)
+
+	if err != nil {
+		log.Printf("❌ [手动房间 %s] 保存礼物记录失败: %v", roomID, err)
+		return err
+	}
+
+	recordID, _ := result.LastInsertId()
+	log.Printf("✅ [手动房间 %s] 礼物记录已保存到 gift_records 表，recordID: %d, msgID: %s", roomID, recordID, msgID)
+	
+	return nil
+}
+
+// getOrCreateManualSession 获取或创建手动房间的 session_id
+func (ui *FyneUI) getOrCreateManualSession(roomID string) (int64, error) {
+	// 查找是否已有活跃的 session
+	var sessionID int64
+	err := ui.db.QueryRow(`
+		SELECT session_id FROM live_sessions 
+		WHERE room_id = ? 
+		ORDER BY start_time DESC 
+		LIMIT 1
+	`, roomID).Scan(&sessionID)
+	
+	if err == nil {
+		log.Printf("📋 [手动房间 %s] 使用已存在的 sessionID: %d", roomID, sessionID)
+		return sessionID, nil
+	}
+
+	// 没有找到，创建新的 session
+	result, err := ui.db.Exec(`INSERT INTO live_sessions (room_id) VALUES (?)`, roomID)
+	if err != nil {
+		return 0, fmt.Errorf("创建 live_session 失败: %w", err)
+	}
+
+	sessionID, _ = result.LastInsertId()
+	log.Printf("✨ [手动房间 %s] 创建新 sessionID: %d", roomID, sessionID)
+	return sessionID, nil
+}
+
+// 辅助函数：转换接口类型为字符串
+func toString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// 辅助函数：转换接口类型为整数
+func toInt(v interface{}) int {
+	switch val := v.(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case string:
+		i, _ := strconv.Atoi(val)
+		return i
+	default:
+		return 0
+	}
 }

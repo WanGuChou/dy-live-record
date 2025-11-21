@@ -75,6 +75,7 @@ func (db *DB) initSchema() error {
 	-- 礼物记录表
 	CREATE TABLE IF NOT EXISTS gift_records (
 		record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+		msg_id TEXT,
 		session_id INTEGER NOT NULL,
 		room_id TEXT NOT NULL,
 		create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -298,6 +299,11 @@ func ensureLiveRoomIDColumn(conn *sql.DB) error {
 }
 
 func ensureGiftRecordsColumns(conn *sql.DB) error {
+	// 添加 msg_id 列
+	if err := addColumnIfMissing(conn, "gift_records", "msg_id", "TEXT"); err != nil {
+		return err
+	}
+	
 	// 添加 anchor_name 列
 	if err := addColumnIfMissing(conn, "gift_records", "anchor_name", "TEXT"); err != nil {
 		return err

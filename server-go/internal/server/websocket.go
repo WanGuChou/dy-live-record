@@ -312,12 +312,18 @@ func (s *WebSocketServer) createLiveSession(roomID string) int64 {
 // saveMessage 保存消息到数据库
 func (s *WebSocketServer) saveMessage(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
 	if parsed == nil {
+		log.Printf("⚠️  [房间 %s] parsed 消息为 nil，跳过保存", roomID)
 		return
 	}
 
+	log.Printf("🔍 [房间 %s] saveMessage 检查消息类型: '%s'", roomID, parsed.MessageType)
+
 	switch parsed.MessageType {
 	case "礼物消息":
+		log.Printf("✅ [房间 %s] 识别到礼物消息，准备保存到 gift_records", roomID)
 		s.saveGiftRecord(roomID, sessionID, parsed)
+	default:
+		log.Printf("ℹ️  [房间 %s] 消息类型 '%s' 不需要特殊处理", roomID, parsed.MessageType)
 	}
 }
 
@@ -395,7 +401,17 @@ func cloneDetail(detail map[string]interface{}) map[string]interface{} {
 
 // saveGiftRecord 保存礼物记录
 func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
+	log.Printf("🎁 [房间 %s] 开始处理礼物记录，SessionID: %d", roomID, sessionID)
+	
 	detail := parsed.Detail
+	if detail == nil {
+		log.Printf("❌ [房间 %s] 礼物消息 Detail 为空", roomID)
+		return
+	}
+
+	// 生成 msgId
+	msgID := fmt.Sprintf("%d_%s_%d", time.Now().UnixNano(), parsed.Method, sessionID)
+	
 	userID := toString(detail["userId"])
 	userNickname := toString(detail["user"])
 	giftID := toString(detail["giftId"])
@@ -409,11 +425,12 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 	anchorID := toString(detail["anchorId"])
 	anchorName := toString(detail["anchorName"])
 
-	log.Printf("🎁 [房间 %s] 收到礼物消息: %s 送出 %s x%d (价值 %d 钻石)", 
-		roomID, userNickname, giftName, giftCount, diamondCount)
+	log.Printf("🎁 [房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d", 
+		roomID, userNickname, userID, giftName, giftID, giftCount, diamondCount)
 
 	// 尝试分配礼物给主播
 	if anchorID == "" {
+		log.Printf("🔍 [房间 %s] 礼物未指定主播，尝试自动分配", roomID)
 		var err error
 		anchorID, err = s.giftAllocator.AllocateGift(giftName, content)
 		if err == nil && anchorID != "" {
@@ -425,24 +442,31 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 				anchorName = name
 				log.Printf("📛 [房间 %s] 主播名称: %s", roomID, anchorName)
 			}
+		} else if err != nil {
+			log.Printf("⚠️  [房间 %s] 自动分配主播失败: %v", roomID, err)
 		}
 	} else {
 		log.Printf("✅ [房间 %s] 礼物已指定主播: %s (%s)", roomID, anchorName, anchorID)
 	}
 
-	_, err := s.db.GetConnection().Exec(`
+	log.Printf("💾 [房间 %s] 准备插入 gift_records 表，msgID: %s", roomID, msgID)
+
+	result, err := s.db.GetConnection().Exec(`
 		INSERT INTO gift_records (
-			session_id, room_id, user_id, user_nickname, gift_id, gift_name, 
+			msg_id, session_id, room_id, user_id, user_nickname, gift_id, gift_name, 
 			gift_count, gift_diamond_value, anchor_id, anchor_name
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, sessionID, roomID, userID, userNickname, giftID, giftName, giftCount, diamondCount, anchorID, anchorName)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, msgID, sessionID, roomID, userID, userNickname, giftID, giftName, giftCount, diamondCount, anchorID, anchorName)
 
 	if err != nil {
 		log.Printf("❌ [房间 %s] 保存礼物记录失败: %v", roomID, err)
+		log.Printf("❌ [房间 %s] 失败的数据: msgID=%s, sessionID=%d, userNickname=%s, giftName=%s", 
+			roomID, msgID, sessionID, userNickname, giftName)
 		return
 	}
 
-	log.Printf("✅ [房间 %s] 礼物记录已保存到 gift_records 表", roomID)
+	recordID, _ := result.LastInsertId()
+	log.Printf("✅ [房间 %s] 礼物记录已保存到 gift_records 表，recordID: %d, msgID: %s", roomID, recordID, msgID)
 
 	if anchorID != "" {
 		// 记录主播业绩

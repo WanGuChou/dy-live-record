@@ -2673,6 +2673,14 @@ func (ui *FyneUI) recordParsedMessage(roomID string, parsed *parser.ParsedProtoM
 
 	if parsed.MessageType == "礼物消息" {
 		ui.handleGiftAssignment(roomID, pair.Detail)
+		
+		// 保存礼物记录到 gift_records 表
+		if persist && ui.db != nil {
+			log.Printf("🎁 [房间 %s] 手动连接收到礼物消息，准备保存到 gift_records", roomID)
+			if err := ui.saveManualGiftRecord(roomID, parsed); err != nil {
+				log.Printf("❌ [房间 %s] 保存手动房间礼物记录失败: %v", roomID, err)
+			}
+		}
 	}
 
 	roomTab.MessagePairs = append([]*MessagePair{pair}, roomTab.MessagePairs...)
