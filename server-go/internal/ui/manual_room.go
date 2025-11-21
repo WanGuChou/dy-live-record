@@ -26,18 +26,31 @@ func (ui *FyneUI) startManualRoom(roomID string) error {
 		return errors.New("房间号不能为空")
 	}
 
+	log.Printf("🚀 [手动房间 %s] 准备建立连接...", roomID)
+
 	ui.roomConnMu.Lock()
 	if _, exists := ui.manualRooms[roomID]; exists {
 		ui.roomConnMu.Unlock()
+		log.Printf("⚠️  [手动房间 %s] 已在监听中，跳过", roomID)
 		return fmt.Errorf("房间 %s 已在监听中", roomID)
 	}
 	ui.roomConnMu.Unlock()
 
+	// 确保 rooms 表中有记录
+	if ui.db != nil {
+		if err := ui.ensureManualRoomRecord(roomID); err != nil {
+			log.Printf("⚠️  [手动房间 %s] 创建房间记录失败: %v", roomID, err)
+		}
+	}
+
 	logger := log.New(os.Stdout, fmt.Sprintf("[手动房间 %s] ", roomID), log.LstdFlags)
 	live, err := douyinLive.NewDouyinLive(roomID, logger)
 	if err != nil {
+		log.Printf("❌ [手动房间 %s] 创建连接失败: %v", roomID, err)
 		return err
 	}
+
+	log.Printf("✅ [手动房间 %s] 连接对象创建成功", roomID)
 
 	conn := &manualRoomConnection{
 		roomID: roomID,
@@ -48,6 +61,8 @@ func (ui *FyneUI) startManualRoom(roomID string) error {
 		ui.handleManualEvent(roomID, eventData)
 	})
 
+	log.Printf("📡 [手动房间 %s] 事件订阅已注册", roomID)
+
 	ui.roomConnMu.Lock()
 	ui.manualRooms[roomID] = conn
 	ui.roomConnMu.Unlock()
@@ -55,8 +70,12 @@ func (ui *FyneUI) startManualRoom(roomID string) error {
 	ui.AddOrUpdateRoom(roomID)
 	ui.updateOverviewStatus(fmt.Sprintf("状态: 房间 %s 已连接", roomID))
 
+	log.Printf("✅ [手动房间 %s] 房间已添加到监控列表", roomID)
+
 	go func() {
+		log.Printf("🔄 [手动房间 %s] 开始监听消息...", roomID)
 		live.Start()
+		log.Printf("⏹️  [手动房间 %s] 监听已停止", roomID)
 		ui.cleanupManualRoom(roomID)
 		ui.updateOverviewStatus(fmt.Sprintf("状态: 房间 %s 连接结束", roomID))
 	}()
@@ -104,13 +123,74 @@ func (ui *FyneUI) handleManualEvent(roomID string, eventData *newdouyin.Webcast_
 		return
 	}
 
+	log.Printf("📩 [手动房间 %s] 收到事件: %s", roomID, eventData.Method)
+
+	// 确保 rooms 表中有记录
+	if ui.db != nil {
+		if err := ui.ensureManualRoomRecord(roomID); err != nil {
+			log.Printf("⚠️  [手动房间 %s] 确保房间记录失败: %v", roomID, err)
+		}
+	}
+
 	ui.AddOrUpdateRoom(roomID)
 
 	parsed, err := parser.ParseProtoMessage(eventData.Method, eventData.Payload)
 	if err != nil {
+		log.Printf("❌ [手动房间 %s] 解析 %s 失败: %v", roomID, eventData.Method, err)
 		ui.AddParsedMessage(roomID, fmt.Sprintf("解析 %s 失败: %v", eventData.Method, err))
 		return
 	}
 
+	log.Printf("✅ [手动房间 %s] 消息解析成功: %s - %s", roomID, parsed.MessageType, parsed.Method)
+
+	// 如果是礼物消息，额外打印详情
+	if parsed.MessageType == "礼物消息" {
+		giftName := fmt.Sprintf("%v", parsed.Detail["giftName"])
+		user := fmt.Sprintf("%v", parsed.Detail["user"])
+		count := parsed.Detail["groupCount"]
+		diamond := parsed.Detail["diamondCount"]
+		log.Printf("🎁 [手动房间 %s] 礼物详情: %s 送出 %s x%v (💎%v)", roomID, user, giftName, count, diamond)
+	}
+
 	ui.recordParsedMessage(roomID, parsed, true)
+}
+
+// ensureManualRoomRecord 确保手动房间在 rooms 表中有记录
+func (ui *FyneUI) ensureManualRoomRecord(roomID string) error {
+	if ui.db == nil || roomID == "" {
+		return nil
+	}
+
+	// 检查是否已存在
+	var count int
+	err := ui.db.QueryRow(`SELECT COUNT(*) FROM rooms WHERE room_id = ?`, roomID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("查询房间记录失败: %w", err)
+	}
+
+	if count > 0 {
+		// 已存在，更新 last_seen_at
+		_, err := ui.db.Exec(`
+			UPDATE rooms SET last_seen_at = CURRENT_TIMESTAMP WHERE room_id = ?
+		`, roomID)
+		if err != nil {
+			log.Printf("⚠️  [手动房间 %s] 更新 last_seen_at 失败: %v", roomID, err)
+		} else {
+			log.Printf("🔄 [手动房间 %s] 房间记录已更新", roomID)
+		}
+		return nil
+	}
+
+	// 不存在，插入新记录
+	_, err = ui.db.Exec(`
+		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
+		VALUES (?, '[手动连接]', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, roomID)
+	
+	if err != nil {
+		return fmt.Errorf("插入房间记录失败: %w", err)
+	}
+
+	log.Printf("✅ [手动房间 %s] 新房间记录已创建", roomID)
+	return nil
 }

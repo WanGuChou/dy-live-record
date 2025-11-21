@@ -172,7 +172,15 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	// 提取房间号
 	roomID := extractRoomID(url)
 	if roomID == "" {
+		log.Printf("⚠️  无法从 URL 提取房间号: %s", url)
 		return
+	}
+
+	log.Printf("📍 提取到房间号: %s", roomID)
+
+	// 确保 rooms 表中有记录
+	if err := s.ensureRoomRecord(roomID); err != nil {
+		log.Printf("⚠️  确保房间记录失败 (房间 %s): %v", roomID, err)
 	}
 
 	// 获取或创建房间管理器
@@ -194,11 +202,16 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	}
 
 	if len(parsedMessages) == 0 {
+		log.Printf("ℹ️  [房间 %s] 解析结果为空", roomID)
 		return
 	}
 
+	log.Printf("✅ [房间 %s] 成功解析 %d 条消息", roomID, len(parsedMessages))
+
 	// 存储到数据库
-	for _, msg := range parsedMessages {
+	for i, msg := range parsedMessages {
+		log.Printf("📝 [房间 %s] 处理消息 %d/%d: %s - %s", roomID, i+1, len(parsedMessages), msg.MessageType, msg.Method)
+		
 		s.saveMessage(roomID, room.SessionID, msg)
 
 		if s.uiUpdater != nil {
@@ -208,11 +221,13 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 		}
 
 		if err := s.PersistRoomMessage(roomID, msg, "browser"); err != nil {
-			log.Printf("⚠️  保存房间消息失败: %v", err)
+			log.Printf("⚠️  [房间 %s] 保存房间消息失败: %v", roomID, err)
+		} else {
+			log.Printf("✅ [房间 %s] 房间消息已保存", roomID)
 		}
 	}
 
-	log.Printf("📨 房间 %s 收到 %d 条消息", roomID, len(parsedMessages))
+	log.Printf("📨 [房间 %s] 批量处理完成，共 %d 条消息", roomID, len(parsedMessages))
 }
 
 // handleRequest 处理HTTP请求记录
@@ -261,6 +276,11 @@ func (s *WebSocketServer) getOrCreateRoom(roomID string) *RoomManager {
 		// 创建新房间
 		room = &RoomManager{
 			RoomID: roomID,
+		}
+
+		// 确保 rooms 表中有记录
+		if err := s.ensureRoomRecord(roomID); err != nil {
+			log.Printf("⚠️  确保房间记录失败: %v", err)
 		}
 
 		// 创建新的直播场次
@@ -376,47 +396,104 @@ func cloneDetail(detail map[string]interface{}) map[string]interface{} {
 // saveGiftRecord 保存礼物记录
 func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
 	detail := parsed.Detail
+	userID := toString(detail["userId"])
 	userNickname := toString(detail["user"])
+	giftID := toString(detail["giftId"])
 	giftName := toString(detail["giftName"])
-	giftCount := toString(detail["groupCount"])
+	giftCount := toInt(detail["groupCount"])
+	if giftCount == 0 {
+		giftCount = 1
+	}
 	diamondCount := toInt(detail["diamondCount"])
 	content := toString(detail["content"])
 	anchorID := toString(detail["anchorId"])
 	anchorName := toString(detail["anchorName"])
+
+	log.Printf("🎁 [房间 %s] 收到礼物消息: %s 送出 %s x%d (价值 %d 钻石)", 
+		roomID, userNickname, giftName, giftCount, diamondCount)
 
 	// 尝试分配礼物给主播
 	if anchorID == "" {
 		var err error
 		anchorID, err = s.giftAllocator.AllocateGift(giftName, content)
 		if err == nil && anchorID != "" {
+			log.Printf("🎯 [房间 %s] 礼物 %s 自动分配给主播: %s", roomID, giftName, anchorID)
 			// 查询主播名称
 			var name string
 			err := s.db.GetConnection().QueryRow(`SELECT anchor_name FROM anchors WHERE anchor_id = ?`, anchorID).Scan(&name)
 			if err == nil {
 				anchorName = name
+				log.Printf("📛 [房间 %s] 主播名称: %s", roomID, anchorName)
 			}
 		}
+	} else {
+		log.Printf("✅ [房间 %s] 礼物已指定主播: %s (%s)", roomID, anchorName, anchorID)
 	}
 
 	_, err := s.db.GetConnection().Exec(`
 		INSERT INTO gift_records (
-			session_id, room_id, user_nickname, gift_name, gift_count, gift_diamond_value, anchor_id, anchor_name
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, sessionID, roomID, userNickname, giftName, giftCount, diamondCount, anchorID, anchorName)
+			session_id, room_id, user_id, user_nickname, gift_id, gift_name, 
+			gift_count, gift_diamond_value, anchor_id, anchor_name
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, sessionID, roomID, userID, userNickname, giftID, giftName, giftCount, diamondCount, anchorID, anchorName)
 
 	if err != nil {
-		log.Printf("❌ 保存礼物记录失败: %v", err)
+		log.Printf("❌ [房间 %s] 保存礼物记录失败: %v", roomID, err)
 		return
 	}
+
+	log.Printf("✅ [房间 %s] 礼物记录已保存到 gift_records 表", roomID)
 
 	if anchorID != "" {
 		// 记录主播业绩
 		if err := s.giftAllocator.RecordAnchorPerformance(anchorID, giftName, diamondCount); err != nil {
-			log.Printf("❌ 记录主播业绩失败: %v", err)
+			log.Printf("❌ [房间 %s] 记录主播业绩失败: %v", roomID, err)
+		} else {
+			log.Printf("📊 [房间 %s] 主播 %s 业绩已更新", roomID, anchorID)
 		}
 	}
 }
 
+
+// ensureRoomRecord 确保 rooms 表中有房间记录
+func (s *WebSocketServer) ensureRoomRecord(roomID string) error {
+	if s.db == nil || roomID == "" {
+		return nil
+	}
+
+	// 检查是否已存在
+	var count int
+	err := s.db.GetConnection().QueryRow(`SELECT COUNT(*) FROM rooms WHERE room_id = ?`, roomID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("查询房间记录失败: %w", err)
+	}
+
+	if count > 0 {
+		// 已存在，更新 last_seen_at
+		_, err := s.db.GetConnection().Exec(`
+			UPDATE rooms SET last_seen_at = CURRENT_TIMESTAMP WHERE room_id = ?
+		`, roomID)
+		if err != nil {
+			log.Printf("⚠️  [房间 %s] 更新 last_seen_at 失败: %v", roomID, err)
+		} else {
+			log.Printf("🔄 [房间 %s] 房间记录已更新", roomID)
+		}
+		return nil
+	}
+
+	// 不存在，插入新记录
+	_, err = s.db.GetConnection().Exec(`
+		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
+		VALUES (?, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, roomID)
+	
+	if err != nil {
+		return fmt.Errorf("插入房间记录失败: %w", err)
+	}
+
+	log.Printf("✅ [房间 %s] 新房间记录已创建", roomID)
+	return nil
+}
 
 // extractRoomID 从URL中提取房间号
 func extractRoomID(url string) string {
