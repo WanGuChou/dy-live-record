@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-
 	// 注意：需要先安装 webview 库
 	// go get github.com/webview/webview
 	// Windows 上需要安装 WebView2 Runtime: https://developer.microsoft.com/microsoft-edge/webview2/
@@ -479,12 +478,11 @@ const htmlTemplate = `
                 
                 rooms.forEach(room => {
                     const row = tbody.insertRow();
-                    row.innerHTML = \`
-                        <td>\${room.room_id}</td>
-                        <td>\${room.room_title}</td>
-                        <td class="\${room.status}">\${room.status === 'online' ? '在线' : '离线'}</td>
-                        <td>\${room.viewers.toLocaleString()}</td>
-                    \`;
+                    row.innerHTML = 
+                        '<td>' + room.room_id + '</td>' +
+                        '<td>' + room.room_title + '</td>' +
+                        '<td class="' + room.status + '">' + (room.status === 'online' ? '在线' : '离线') + '</td>' +
+                        '<td>' + room.viewers.toLocaleString() + '</td>';
                 });
                 
                 addLog('✅ 房间列表已刷新 (' + rooms.length + ' 个房间)');
@@ -504,14 +502,13 @@ const htmlTemplate = `
                 
                 gifts.forEach(gift => {
                     const row = tbody.insertRow();
-                    row.innerHTML = \`
-                        <td>\${gift.time}</td>
-                        <td>\${gift.gift}</td>
-                        <td>\${gift.count}</td>
-                        <td>\${gift.diamond}</td>
-                        <td>\${gift.receiver}</td>
-                        <td>\${gift.sender}</td>
-                    \`;
+                    row.innerHTML = 
+                        '<td>' + gift.time + '</td>' +
+                        '<td>' + gift.gift + '</td>' +
+                        '<td>' + gift.count + '</td>' +
+                        '<td>' + gift.diamond + '</td>' +
+                        '<td>' + gift.receiver + '</td>' +
+                        '<td>' + gift.sender + '</td>';
                 });
                 
                 addLog('✅ 礼物记录已刷新 (' + gifts.length + ' 条记录)');
