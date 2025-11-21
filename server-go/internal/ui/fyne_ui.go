@@ -2925,13 +2925,21 @@ func (ui *FyneUI) lookupAnchorName(anchorID string) string {
 }
 
 func (ui *FyneUI) refreshRoomTables(roomTab *RoomTab) {
+	log.Printf("🔄 [房间 %s] refreshRoomTables 开始刷新表格", roomTab.RoomID)
+
 	roomTab.GiftRows = ui.loadRoomGiftRows(roomTab.RoomID)
+	log.Printf("📊 [房间 %s] GiftRows 更新完成，当前行数: %d", roomTab.RoomID, len(roomTab.GiftRows))
+
 	roomTab.AnchorRows = ui.loadRoomAnchorRows(roomTab.RoomID)
 	roomTab.SegmentRows = ui.loadRoomSegmentRows(roomTab.RoomID)
 
 	if roomTab.GiftTable != nil {
+		log.Printf("🔄 [房间 %s] 刷新 GiftTable UI", roomTab.RoomID)
 		roomTab.GiftTable.Refresh()
+	} else {
+		log.Printf("⚠️  [房间 %s] GiftTable 为 nil，无法刷新", roomTab.RoomID)
 	}
+
 	if roomTab.AnchorTable != nil {
 		roomTab.AnchorTable.Refresh()
 	}
@@ -2939,16 +2947,26 @@ func (ui *FyneUI) refreshRoomTables(roomTab *RoomTab) {
 		roomTab.SegmentTable.Refresh()
 	}
 	ui.refreshRoomAnchorPicker(roomTab)
+
+	log.Printf("✅ [房间 %s] refreshRoomTables 完成", roomTab.RoomID)
 }
 
 func (ui *FyneUI) initRoomGiftTable(roomTab *RoomTab) {
+	log.Printf("🏗️  [房间 %s] 初始化礼物表格", roomTab.RoomID)
+
 	roomTab.GiftRows = ui.loadRoomGiftRows(roomTab.RoomID)
+	log.Printf("📊 [房间 %s] 初始化时加载了 %d 行数据", roomTab.RoomID, len(roomTab.GiftRows))
+
 	table := widget.NewTable(
 		func() (int, int) {
 			if len(roomTab.GiftRows) == 0 {
+				log.Printf("⚠️  [房间 %s] GiftRows 为空，返回 0 行", roomTab.RoomID)
 				return 0, 0
 			}
-			return len(roomTab.GiftRows), len(roomTab.GiftRows[0])
+			rows := len(roomTab.GiftRows)
+			cols := len(roomTab.GiftRows[0])
+			log.Printf("📐 [房间 %s] 表格尺寸: %d 行 x %d 列", roomTab.RoomID, rows, cols)
+			return rows, cols
 		},
 		func() fyne.CanvasObject {
 			return widget.NewLabel("")
@@ -2966,6 +2984,8 @@ func (ui *FyneUI) initRoomGiftTable(roomTab *RoomTab) {
 	table.SetColumnWidth(4, 120)
 	table.SetColumnWidth(5, 140)
 	roomTab.GiftTable = table
+
+	log.Printf("✅ [房间 %s] 礼物表格初始化完成", roomTab.RoomID)
 }
 
 func (ui *FyneUI) initRoomAnchorTable(roomTab *RoomTab) fyne.CanvasObject {
@@ -3528,7 +3548,11 @@ func (ui *FyneUI) loadAllGiftNames() []string {
 
 func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
 	rows := [][]string{{"时间", "礼物", "数量", "钻石", "接收主播", "送礼用户"}}
+
+	log.Printf("📊 [房间 %s] 开始加载礼物记录", roomID)
+
 	if ui.db == nil {
+		log.Printf("⚠️  [房间 %s] 数据库连接为空", roomID)
 		return rows
 	}
 
@@ -3542,17 +3566,22 @@ func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
 		LIMIT 200
 	`
 
+	log.Printf("🔍 [房间 %s] 执行查询: WHERE room_id = '%s'", roomID, roomID)
+
 	data, err := ui.db.Query(query, roomID)
 	if err != nil {
+		log.Printf("❌ [房间 %s] 查询礼物记录失败: %v", roomID, err)
 		return rows
 	}
 	defer data.Close()
 
+	recordCount := 0
 	for data.Next() {
 		var ts time.Time
 		var giftName, receiver, user sql.NullString
 		var count, diamond int
 		if err := data.Scan(&ts, &giftName, &count, &diamond, &receiver, &user); err != nil {
+			log.Printf("⚠️  [房间 %s] 扫描记录失败: %v", roomID, err)
 			continue
 		}
 		totalDiamond := diamond * count
@@ -3567,7 +3596,10 @@ func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
 			strings.TrimSpace(receiver.String),
 			user.String,
 		})
+		recordCount++
 	}
+
+	log.Printf("✅ [房间 %s] 加载了 %d 条礼物记录（包含表头共 %d 行）", roomID, recordCount, len(rows))
 
 	return rows
 }

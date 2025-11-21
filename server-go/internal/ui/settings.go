@@ -38,7 +38,7 @@ func (s *SettingsManager) InstallPlugin() error {
 	// 2. 从嵌入文件或外部文件读取插件
 	var zipData []byte
 	var err error
-	
+
 	// 优先使用嵌入的插件
 	if len(embeddedPlugin) > 0 {
 		zipData = embeddedPlugin
@@ -81,7 +81,7 @@ func (s *SettingsManager) InstallPlugin() error {
 // RemovePlugin 删除插件（清理临时目录）
 func (s *SettingsManager) RemovePlugin() error {
 	tempDir := filepath.Join(os.TempDir(), "browser-monitor")
-	
+
 	if _, err := os.Stat(tempDir); os.IsNotExist(err) {
 		return fmt.Errorf("插件目录不存在")
 	}

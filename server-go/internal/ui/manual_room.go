@@ -188,7 +188,7 @@ func (ui *FyneUI) ensureManualRoomRecord(roomID string) error {
 		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
 		VALUES (?, '[手动连接]', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, roomID)
-	
+
 	if err != nil {
 		return fmt.Errorf("插入房间记录失败: %w", err)
 	}
@@ -213,7 +213,7 @@ func (ui *FyneUI) saveManualGiftRecord(roomID string, parsed *parser.ParsedProto
 
 	// 生成 msgID
 	msgID := fmt.Sprintf("%d_%s_%d", time.Now().UnixNano(), parsed.Method, sessionID)
-	
+
 	detail := parsed.Detail
 	userID := toString(detail["userId"])
 	userNickname := toString(detail["user"])
@@ -227,7 +227,7 @@ func (ui *FyneUI) saveManualGiftRecord(roomID string, parsed *parser.ParsedProto
 	anchorID := toString(detail["anchorId"])
 	anchorName := toString(detail["anchorName"])
 
-	log.Printf("🎁 [手动房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d", 
+	log.Printf("🎁 [手动房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d",
 		roomID, userNickname, userID, giftName, giftID, giftCount, diamondCount)
 
 	log.Printf("💾 [手动房间 %s] 准备插入 gift_records 表，msgID: %s, sessionID: %d", roomID, msgID, sessionID)
@@ -246,7 +246,7 @@ func (ui *FyneUI) saveManualGiftRecord(roomID string, parsed *parser.ParsedProto
 
 	recordID, _ := result.LastInsertId()
 	log.Printf("✅ [手动房间 %s] 礼物记录已保存到 gift_records 表，recordID: %d, msgID: %s", roomID, recordID, msgID)
-	
+
 	return nil
 }
 
@@ -260,7 +260,7 @@ func (ui *FyneUI) getOrCreateManualSession(roomID string) (int64, error) {
 		ORDER BY start_time DESC 
 		LIMIT 1
 	`, roomID).Scan(&sessionID)
-	
+
 	if err == nil {
 		log.Printf("📋 [手动房间 %s] 使用已存在的 sessionID: %d", roomID, sessionID)
 		return sessionID, nil
