@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/tidwall/gjson"
 )
 
 // UIUpdater UI更新接口
@@ -211,7 +212,7 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	// 存储到数据库
 	for i, msg := range parsedMessages {
 		log.Printf("📝 [房间 %s] 处理消息 %d/%d: %s - %s", roomID, i+1, len(parsedMessages), msg.MessageType, msg.Method)
-		
+
 		s.saveMessage(roomID, room.SessionID, msg)
 
 		if s.uiUpdater != nil {
@@ -335,10 +336,9 @@ func (s *WebSocketServer) PersistRoomMessage(roomID string, parsed *parser.Parse
 	detail := parsed.Detail
 
 	// 生成 msgId
-	msgID := fmt.Sprintf("%d_%s", time.Now().UnixNano(), parsed.Method)
 
-	record := &database.RoomMessageRecord{
-		MsgID:       msgID,
+	var record = &database.RoomMessageRecord{
+		MsgID:       gjson.Get(parsed.RawJSON, "common.msgId").String(),
 		RoomID:      roomID,
 		Method:      parsed.Method,
 		MessageType: parsed.MessageType,
@@ -354,7 +354,6 @@ func (s *WebSocketServer) PersistRoomMessage(roomID string, parsed *parser.Parse
 		Source:      source,
 		SentAt:      parsed.ReceivedAt,
 	}
-
 	if record.SentAt.IsZero() {
 		record.SentAt = time.Now()
 	}
@@ -402,7 +401,7 @@ func cloneDetail(detail map[string]interface{}) map[string]interface{} {
 // saveGiftRecord 保存礼物记录
 func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed *parser.ParsedProtoMessage) {
 	log.Printf("🎁 [房间 %s] 开始处理礼物记录，SessionID: %d", roomID, sessionID)
-	
+
 	detail := parsed.Detail
 	if detail == nil {
 		log.Printf("❌ [房间 %s] 礼物消息 Detail 为空", roomID)
@@ -410,8 +409,8 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 	}
 
 	// 生成 msgId
-	msgID := fmt.Sprintf("%d_%s_%d", time.Now().UnixNano(), parsed.Method, sessionID)
-	
+	msgID := gjson.Get(parsed.RawJSON, "common.msgId")
+
 	userID := toString(detail["userId"])
 	userNickname := toString(detail["user"])
 	giftID := toString(detail["giftId"])
@@ -425,7 +424,7 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 	anchorID := toString(detail["anchorId"])
 	anchorName := toString(detail["anchorName"])
 
-	log.Printf("🎁 [房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d", 
+	log.Printf("🎁 [房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d",
 		roomID, userNickname, userID, giftName, giftID, giftCount, diamondCount)
 
 	// 尝试分配礼物给主播
@@ -460,7 +459,7 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 
 	if err != nil {
 		log.Printf("❌ [房间 %s] 保存礼物记录失败: %v", roomID, err)
-		log.Printf("❌ [房间 %s] 失败的数据: msgID=%s, sessionID=%d, userNickname=%s, giftName=%s", 
+		log.Printf("❌ [房间 %s] 失败的数据: msgID=%s, sessionID=%d, userNickname=%s, giftName=%s",
 			roomID, msgID, sessionID, userNickname, giftName)
 		return
 	}
@@ -477,7 +476,6 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, sessionID int64, parsed 
 		}
 	}
 }
-
 
 // ensureRoomRecord 确保 rooms 表中有房间记录
 func (s *WebSocketServer) ensureRoomRecord(roomID string) error {
@@ -510,7 +508,7 @@ func (s *WebSocketServer) ensureRoomRecord(roomID string) error {
 		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
 		VALUES (?, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, roomID)
-	
+
 	if err != nil {
 		return fmt.Errorf("插入房间记录失败: %w", err)
 	}

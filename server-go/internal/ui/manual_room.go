@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	douyinLive "github.com/jwwsjlm/douyinLive"
 	newdouyin "github.com/jwwsjlm/douyinLive/generated/new_douyin"
+	"github.com/tidwall/gjson"
 
 	"dy-live-monitor/internal/parser"
 )
@@ -212,7 +211,7 @@ func (ui *FyneUI) saveManualGiftRecord(roomID string, parsed *parser.ParsedProto
 	}
 
 	// 生成 msgID
-	msgID := fmt.Sprintf("%d_%s_%d", time.Now().UnixNano(), parsed.Method, sessionID)
+	msgID := gjson.Get(parsed.RawJSON, "common.msgId")
 
 	detail := parsed.Detail
 	userID := toString(detail["userId"])
