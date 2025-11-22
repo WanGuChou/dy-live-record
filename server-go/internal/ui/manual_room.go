@@ -239,8 +239,8 @@ func (ui *FyneUI) saveManualGiftRecord(roomID string, parsed *parser.ParsedProto
 		giftCount = 1
 	}
 	diamondCount := toInt(detail["diamondCount"])
-	anchorID := toString(detail["anchorId"])
-	anchorName := toString(detail["anchorName"])
+	anchorID := normalizeAnchorID(toString(detail["anchorId"]))
+	anchorName := normalizeAnchorName(toString(detail["anchorName"]))
 
 	log.Printf("🎁 [手动房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d",
 		roomID, userNickname, userID, giftName, giftID, giftCount, diamondCount)

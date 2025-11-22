@@ -16,10 +16,11 @@ type DB struct {
 
 // Init 初始化数据库
 func Init(dbPath string) (*DB, error) {
-	conn, err := sql.Open("sqlite3", dbPath)
+	conn, err := sql.Open("sqlite3", buildSQLiteDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
 	}
+	conn.SetMaxOpenConns(1)
 
 	// 测试连接
 	if err := conn.Ping(); err != nil {
@@ -284,6 +285,17 @@ func ensureRoomsExtraColumns(conn *sql.DB) error {
 		return err
 	}
 	return addColumnIfMissing(conn, "rooms", "ws_url", "TEXT")
+}
+
+func buildSQLiteDSN(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return path
+	}
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	return fmt.Sprintf("%s%s_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on", path, separator)
 }
 
 func ensureGiftRecordsColumns(conn *sql.DB) error {

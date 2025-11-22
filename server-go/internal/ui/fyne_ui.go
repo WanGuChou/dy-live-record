@@ -129,6 +129,14 @@ type RoomTab struct {
 	AnchorOptionMap      map[string]AnchorOption
 }
 
+type roomSummary struct {
+	RoomID     string
+	Title      string
+	FirstSeen  string
+	LastSeen   string
+	LiveRoomID string
+}
+
 type AnchorOption struct {
 	ID     string
 	Name   string
@@ -837,55 +845,93 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 	anchorFilter := widget.NewEntry()
 	anchorFilter.SetPlaceHolder("主播名称")
 
-	type roomSummary struct {
-		ID      string
-		Title   string
-		Display string
-	}
+	summaries := ui.loadRoomSummaries("", "")
 
-	data := ui.loadRoomSummaries("", "")
-	summaries := make([]roomSummary, len(data))
-	for i, row := range data {
-		summaries[i] = roomSummary{ID: row[0], Title: row[1], Display: strings.Join(row, " | ")}
-	}
+	headers := []string{"房间号", "标题", "首次出现", "最近活动", "live_room_id", "操作"}
+	selected := -1
 
 	updateStatusLabel := func() {
-		if statusLabel.Text == "" || strings.HasPrefix(statusLabel.Text, "共") {
-			statusLabel.SetText(fmt.Sprintf("共 %d 条记录", len(summaries)))
-		}
+		statusLabel.SetText(fmt.Sprintf("共 %d 条记录", len(summaries)))
 	}
 	updateStatusLabel()
 
-	roomList := widget.NewList(
-		func() int { return len(summaries) },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
-		func(id widget.ListItemID, co fyne.CanvasObject) {
-			if id < len(summaries) {
-				co.(*widget.Label).SetText(summaries[id].Display)
+	roomTable := widget.NewTable(
+		func() (int, int) {
+			return len(summaries) + 1, len(headers)
+		},
+		func() fyne.CanvasObject {
+			label := widget.NewLabel("")
+			button := widget.NewButton("", nil)
+			button.Hide()
+			return container.NewMax(label, button)
+		},
+		func(id widget.TableCellID, cell fyne.CanvasObject) {
+			cont := cell.(*fyne.Container)
+			label := cont.Objects[0].(*widget.Label)
+			button := cont.Objects[1].(*widget.Button)
+			label.Show()
+			button.Hide()
+			label.TextStyle = fyne.TextStyle{}
+
+			if id.Row == 0 {
+				label.TextStyle = fyne.TextStyle{Bold: true}
+				label.SetText(headers[id.Col])
+				return
+			}
+
+			if id.Row-1 >= len(summaries) {
+				label.SetText("")
+				return
+			}
+			summary := summaries[id.Row-1]
+			switch id.Col {
+			case 0:
+				label.SetText(summary.RoomID)
+			case 1:
+				label.SetText(summary.Title)
+			case 2:
+				label.SetText(summary.FirstSeen)
+			case 3:
+				label.SetText(summary.LastSeen)
+			case 4:
+				label.SetText(summary.LiveRoomID)
+			case 5:
+				label.Hide()
+				button.Show()
+				button.SetText("连接")
+				current := summary
+				button.OnTapped = func() {
+					ui.connectRoomFromSummary(current, statusLabel)
+				}
 			}
 		},
 	)
 
-	selected := -1
-	roomList.OnSelected = func(id widget.ListItemID) {
-		selected = int(id)
+	roomTable.OnSelected = func(id widget.TableCellID) {
+		if id.Row == 0 {
+			selected = -1
+			return
+		}
+		if id.Row-1 < len(summaries) {
+			selected = id.Row - 1
+		}
+	}
+
+	refreshSummaries := func() {
+		summaries = ui.loadRoomSummaries(roomFilter.Text, anchorFilter.Text)
+		roomTable.Refresh()
+		selected = -1
+		updateStatusLabel()
 	}
 
 	queryBtn := widget.NewButton("查询历史房间", func() {
-		data = ui.loadRoomSummaries(roomFilter.Text, anchorFilter.Text)
-		summaries = make([]roomSummary, len(data))
-		for i, row := range data {
-			summaries[i] = roomSummary{ID: row[0], Title: row[1], Display: strings.Join(row, " | ")}
-		}
-		roomList.Refresh()
-		selected = -1
-		statusLabel.SetText(fmt.Sprintf("共 %d 条记录", len(summaries)))
+		refreshSummaries()
 	})
 
 	openBtn := widget.NewButton("打开房间详情", func() {
 		if selected >= 0 && selected < len(summaries) {
-			ui.openHistoricalRoomTab(summaries[selected].ID)
-			statusLabel.SetText(fmt.Sprintf("已打开房间 %s", summaries[selected].ID))
+			ui.openHistoricalRoomTab(summaries[selected].RoomID)
+			statusLabel.SetText(fmt.Sprintf("已打开房间 %s", summaries[selected].RoomID))
 		} else {
 			statusLabel.SetText("请先选择房间")
 		}
@@ -893,7 +939,7 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 
 	exportGiftsBtn := widget.NewButton("导出礼物记录", func() {
 		if selected >= 0 && selected < len(summaries) {
-			path, err := ui.exportRoomGifts(summaries[selected].ID)
+			path, err := ui.exportRoomGifts(summaries[selected].RoomID)
 			if err != nil {
 				statusLabel.SetText(fmt.Sprintf("导出失败: %v", err))
 			} else {
@@ -906,7 +952,7 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 
 	exportAnchorsBtn := widget.NewButton("导出主播得分", func() {
 		if selected >= 0 && selected < len(summaries) {
-			path, err := ui.exportRoomAnchorScores(summaries[selected].ID)
+			path, err := ui.exportRoomAnchorScores(summaries[selected].RoomID)
 			if err != nil {
 				statusLabel.SetText(fmt.Sprintf("导出失败: %v", err))
 			} else {
@@ -925,6 +971,7 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 		),
 		container.NewHBox(queryBtn, openBtn, exportGiftsBtn, exportAnchorsBtn),
 		widget.NewSeparator(),
+		container.NewScroll(roomTable),
 	)
 
 	topSection := container.NewVBox(
@@ -933,11 +980,30 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 		statusLabel,
 	)
 
-	return container.NewBorder(
-		topSection,
-		nil, nil, nil,
-		container.NewScroll(roomList),
-	)
+	return container.NewVScroll(topSection)
+}
+
+func (ui *FyneUI) connectRoomFromSummary(summary roomSummary, statusLabel *widget.Label) {
+	liveID := strings.TrimSpace(summary.LiveRoomID)
+	if liveID == "" {
+		liveID = summary.RoomID
+	}
+	if liveID == "" {
+		statusLabel.SetText("❌ 无法连接：缺少 live_room_id")
+		return
+	}
+	statusLabel.SetText(fmt.Sprintf("⏳ 正在连接 %s...", summary.RoomID))
+	go func(id string) {
+		displayName, err := ui.startManualRoom(id)
+		ui.runOnMain(func() {
+			if err != nil {
+				statusLabel.SetText(fmt.Sprintf("❌ 房间 %s 连接失败: %v", summary.RoomID, err))
+			} else {
+				statusLabel.SetText(fmt.Sprintf("✅ 正在监听 %s", displayName))
+				ui.updateOverviewStatus(fmt.Sprintf("状态: 正在监听 %s", displayName))
+			}
+		})
+	}(liveID)
 }
 
 func (ui *FyneUI) loadAllAnchors() [][]string {
@@ -1983,13 +2049,13 @@ func (ui *FyneUI) countGiftRecords(filter giftFilter) int {
 	return total
 }
 
-func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) [][]string {
-	rows := [][]string{{"房间号", "标题", "首次出现", "最近活动"}}
+func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) []roomSummary {
+	results := make([]roomSummary, 0)
 	if ui.db == nil {
-		return rows
+		return results
 	}
 
-	query := `SELECT room_id, COALESCE(room_title,''), first_seen_at, last_seen_at FROM rooms`
+	query := `SELECT room_id, COALESCE(room_title,''), COALESCE(live_room_id,''), first_seen_at, last_seen_at FROM rooms`
 	var args []interface{}
 	clauses := []string{}
 
@@ -2010,32 +2076,25 @@ func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) [][]string {
 
 	data, err := ui.db.Query(query, args...)
 	if err != nil {
-		return rows
+		return results
 	}
 	defer data.Close()
 
 	for data.Next() {
-		var id, title string
+		var summary roomSummary
 		var first, last sql.NullTime
-		if err := data.Scan(&id, &title, &first, &last); err != nil {
+		if err := data.Scan(&summary.RoomID, &summary.Title, &summary.LiveRoomID, &first, &last); err != nil {
 			continue
 		}
-		firstStr := ""
 		if first.Valid {
-			firstStr = first.Time.Format("01-02 15:04")
+			summary.FirstSeen = first.Time.Format("01-02 15:04")
 		}
-		lastStr := ""
 		if last.Valid {
-			lastStr = last.Time.Format("01-02 15:04")
+			summary.LastSeen = last.Time.Format("01-02 15:04")
 		}
-		rows = append(rows, []string{
-			id,
-			title,
-			firstStr,
-			lastStr,
-		})
+		results = append(results, summary)
 	}
-	return rows
+	return results
 }
 
 func (ui *FyneUI) lookupRoomTitle(roomID string) string {
@@ -2085,7 +2144,7 @@ func (ui *FyneUI) loadHistoricalMessages(roomID string) []*MessagePair {
 		return nil
 	}
 	tableName := database.RoomMessageTableName(roomID)
-	query := fmt.Sprintf(`SELECT COALESCE(create_time, timestamp), display, message_type, method, raw_payload, parsed_json FROM %s ORDER BY COALESCE(create_time, timestamp) DESC LIMIT 200`, tableName)
+	query := fmt.Sprintf(`SELECT COALESCE(create_time, CURRENT_TIMESTAMP), display, message_type, method, raw_payload, parsed_json FROM %s ORDER BY COALESCE(create_time, CURRENT_TIMESTAMP) DESC LIMIT 200`, tableName)
 	rows, err := ui.db.Query(query)
 	if err != nil {
 		return nil
@@ -2772,8 +2831,8 @@ func (ui *FyneUI) handleGiftAssignment(roomID string, detail map[string]interfac
 		return
 	}
 
-	anchorID := fmt.Sprintf("%v", detail["anchorId"])
-	anchorName := fmt.Sprintf("%v", detail["anchorName"])
+	anchorID := normalizeAnchorID(fmt.Sprintf("%v", detail["anchorId"]))
+	anchorName := normalizeAnchorName(fmt.Sprintf("%v", detail["anchorName"]))
 
 	if anchorID == "" {
 		anchorID, anchorName = ui.lookupGiftBinding(roomID, giftName)
@@ -2792,9 +2851,11 @@ func (ui *FyneUI) handleGiftAssignment(roomID string, detail map[string]interfac
 }
 
 func (ui *FyneUI) ensureRoomAnchorRecord(roomID, anchorID, anchorName string) {
+	anchorID = normalizeAnchorID(anchorID)
 	if ui.db == nil || anchorID == "" {
 		return
 	}
+	anchorName = normalizeAnchorName(anchorName)
 
 	_, err := ui.db.Exec(`
 		INSERT INTO room_anchors (room_id, anchor_id, anchor_name, gift_count, score)
@@ -2807,6 +2868,7 @@ func (ui *FyneUI) ensureRoomAnchorRecord(roomID, anchorID, anchorName string) {
 }
 
 func (ui *FyneUI) incrementAnchorScore(roomID, anchorID string, giftCount, diamond int) {
+	anchorID = normalizeAnchorID(anchorID)
 	if ui.db == nil || anchorID == "" {
 		return
 	}
@@ -2823,10 +2885,11 @@ func (ui *FyneUI) incrementAnchorScore(roomID, anchorID string, giftCount, diamo
 }
 
 func (ui *FyneUI) ensureGlobalAnchor(anchorID, anchorName string) {
+	anchorID = normalizeAnchorID(anchorID)
 	if ui.db == nil || anchorID == "" {
 		return
 	}
-	anchorName = strings.TrimSpace(anchorName)
+	anchorName = normalizeAnchorName(anchorName)
 	if anchorName == "" {
 		anchorName = anchorID
 	}
@@ -2876,6 +2939,7 @@ func (ui *FyneUI) initializeRoomAnchors(roomTab *RoomTab) {
 }
 
 func (ui *FyneUI) bindGiftsToAnchor(roomID, anchorID, gifts string) {
+	anchorID = normalizeAnchorID(anchorID)
 	if ui.db == nil || roomID == "" || anchorID == "" || strings.TrimSpace(gifts) == "" {
 		return
 	}
@@ -3432,12 +3496,12 @@ func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
 	}
 
 	query := `
-		SELECT COALESCE(gr.create_time, gr.timestamp, CURRENT_TIMESTAMP), gr.gift_name, gr.gift_count, gr.gift_diamond_value,
+		SELECT COALESCE(gr.create_time, CURRENT_TIMESTAMP), gr.gift_name, gr.gift_count, gr.gift_diamond_value,
 		       COALESCE(gr.anchor_name, a.anchor_name, gr.anchor_id, '') AS receiver, gr.user_nickname
 		FROM gift_records gr
 		LEFT JOIN anchors a ON gr.anchor_id = a.anchor_id
 		WHERE gr.room_id = ?
-		ORDER BY COALESCE(gr.create_time, gr.timestamp) DESC
+		ORDER BY COALESCE(gr.create_time, CURRENT_TIMESTAMP) DESC
 		LIMIT 200
 	`
 
@@ -3588,11 +3652,11 @@ func (ui *FyneUI) syncRoomAnchorsFromGiftRecords(roomID string) {
 		if err := rows.Scan(&anchorID, &anchorName); err != nil {
 			continue
 		}
-		id := strings.TrimSpace(anchorID.String)
+		id := normalizeAnchorID(anchorID.String)
 		if id == "" {
 			continue
 		}
-		name := strings.TrimSpace(anchorName.String)
+		name := normalizeAnchorName(anchorName.String)
 		ui.ensureGlobalAnchor(id, name)
 		ui.ensureRoomAnchorRecord(roomID, id, name)
 	}
@@ -3704,6 +3768,22 @@ func toInt(value interface{}) int {
 	default:
 		return 0
 	}
+}
+
+func normalizeAnchorID(val string) string {
+	val = strings.TrimSpace(val)
+	if val == "" || val == "<nil>" {
+		return ""
+	}
+	return val
+}
+
+func normalizeAnchorName(val string) string {
+	val = strings.TrimSpace(val)
+	if val == "<nil>" {
+		return ""
+	}
+	return val
 }
 
 func (ui *FyneUI) runOnMain(f func()) {

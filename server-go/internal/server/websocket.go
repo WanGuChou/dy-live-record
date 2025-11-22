@@ -398,8 +398,8 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, parsed *parser.ParsedPro
 	}
 	diamondCount := toInt(detail["diamondCount"])
 	content := toString(detail["content"])
-	anchorID := toString(detail["anchorId"])
-	anchorName := toString(detail["anchorName"])
+	anchorID := sanitizeAnchorID(toString(detail["anchorId"]))
+	anchorName := sanitizeAnchorName(toString(detail["anchorName"]))
 
 	log.Printf("🎁 [房间 %s] 礼物详情 - 用户: %s(%s), 礼物: %s(%s) x%d, 钻石: %d",
 		roomID, userNickname, userID, giftName, giftID, giftCount, diamondCount)
@@ -462,10 +462,12 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, parsed *parser.ParsedPro
 }
 
 func (s *WebSocketServer) ensureRoomAnchorRecord(roomID, anchorID, anchorName string) {
+	anchorID = sanitizeAnchorID(anchorID)
 	if s.db == nil || anchorID == "" {
 		return
 	}
-	if strings.TrimSpace(anchorName) == "" {
+	anchorName = sanitizeAnchorName(anchorName)
+	if anchorName == "" {
 		anchorName = s.lookupAnchorName(anchorID)
 	}
 	_, err := s.db.GetConnection().Exec(`
@@ -479,10 +481,12 @@ func (s *WebSocketServer) ensureRoomAnchorRecord(roomID, anchorID, anchorName st
 }
 
 func (s *WebSocketServer) ensureGlobalAnchor(anchorID, anchorName string) {
+	anchorID = sanitizeAnchorID(anchorID)
 	if s.db == nil || anchorID == "" {
 		return
 	}
-	if strings.TrimSpace(anchorName) == "" {
+	anchorName = sanitizeAnchorName(anchorName)
+	if anchorName == "" {
 		anchorName = anchorID
 	}
 	_, err := s.db.GetConnection().Exec(`
@@ -501,6 +505,7 @@ func (s *WebSocketServer) ensureGlobalAnchor(anchorID, anchorName string) {
 }
 
 func (s *WebSocketServer) lookupAnchorName(anchorID string) string {
+	anchorID = sanitizeAnchorID(anchorID)
 	if s.db == nil || anchorID == "" {
 		return ""
 	}
@@ -556,6 +561,22 @@ func (s *WebSocketServer) ensureRoomRecord(roomID, wsURL string) error {
 
 	log.Printf("✅ [房间 %s] 新房间记录已创建", roomID)
 	return nil
+}
+
+func sanitizeAnchorID(val string) string {
+	val = strings.TrimSpace(val)
+	if val == "" || val == "<nil>" {
+		return ""
+	}
+	return val
+}
+
+func sanitizeAnchorName(val string) string {
+	val = strings.TrimSpace(val)
+	if val == "<nil>" {
+		return ""
+	}
+	return val
 }
 
 // extractRoomID 从URL中提取房间号
