@@ -2936,6 +2936,8 @@ func (ui *FyneUI) lookupAnchorName(anchorID string) string {
 func (ui *FyneUI) refreshRoomTables(roomTab *RoomTab) {
 	log.Printf("🔄 [房间 %s] refreshRoomTables 开始刷新表格", roomTab.RoomID)
 
+	ui.syncRoomAnchorsFromGiftRecords(roomTab.RoomID)
+
 	roomTab.GiftRows = ui.loadRoomGiftRows(roomTab.RoomID)
 	log.Printf("📊 [房间 %s] GiftRows 更新完成，当前行数: %d", roomTab.RoomID, len(roomTab.GiftRows))
 
@@ -3472,9 +3474,128 @@ func (ui *FyneUI) loadRoomGiftRows(roomID string) [][]string {
 		recordCount++
 	}
 
+	if recordCount == 0 {
+		if inserted, err := ui.backfillGiftRecordsFromMessages(roomID); err == nil && inserted > 0 {
+			return ui.loadRoomGiftRows(roomID)
+		}
+	}
+
 	log.Printf("✅ [房间 %s] 加载了 %d 条礼物记录（包含表头共 %d 行）", roomID, recordCount, len(rows))
 
 	return rows
+}
+
+func (ui *FyneUI) backfillGiftRecordsFromMessages(roomID string) (int, error) {
+	if ui.db == nil || strings.TrimSpace(roomID) == "" {
+		return 0, fmt.Errorf("数据库未初始化")
+	}
+
+	tableName := database.RoomMessageTableName(roomID)
+	query := fmt.Sprintf(`
+		SELECT msg_id, parsed_json
+		FROM %s
+		WHERE message_type = '礼物消息'
+		ORDER BY create_time DESC
+		LIMIT 500
+	`, tableName)
+
+	rows, err := ui.db.Query(query)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	inserted := 0
+	for rows.Next() {
+		var msgID, parsedJSON sql.NullString
+		if err := rows.Scan(&msgID, &parsedJSON); err != nil {
+			continue
+		}
+		if !msgID.Valid || strings.TrimSpace(msgID.String) == "" || !parsedJSON.Valid || strings.TrimSpace(parsedJSON.String) == "" {
+			continue
+		}
+
+		var exists int
+		if err := ui.db.QueryRow(`SELECT COUNT(1) FROM gift_records WHERE msg_id = ?`, msgID.String).Scan(&exists); err == nil && exists > 0 {
+			continue
+		}
+
+		detail := make(map[string]interface{})
+		if err := json.Unmarshal([]byte(parsedJSON.String), &detail); err != nil {
+			continue
+		}
+
+		giftName := fmt.Sprintf("%v", detail["giftName"])
+		if strings.TrimSpace(giftName) == "" {
+			continue
+		}
+
+		userID := fmt.Sprintf("%v", detail["userId"])
+		userNickname := fmt.Sprintf("%v", detail["user"])
+		giftID := fmt.Sprintf("%v", detail["giftId"])
+		anchorID := fmt.Sprintf("%v", detail["anchorId"])
+		anchorName := fmt.Sprintf("%v", detail["anchorName"])
+
+		giftCount := toInt(detail["groupCount"])
+		if giftCount == 0 {
+			giftCount = toInt(detail["giftCount"])
+		}
+		if giftCount == 0 {
+			giftCount = 1
+		}
+
+		diamond := toInt(detail["diamondCount"])
+		if diamond == 0 {
+			diamond = toInt(detail["diamondTotal"])
+		}
+
+		_, err := ui.db.Exec(`
+			INSERT INTO gift_records (
+				msg_id, room_id, user_id, user_nickname, gift_id, gift_name,
+				gift_count, gift_diamond_value, anchor_id, anchor_name
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, msgID.String, roomID, userID, userNickname, giftID, giftName, giftCount, diamond, anchorID, anchorName)
+		if err != nil {
+			continue
+		}
+		inserted++
+	}
+
+	if inserted > 0 {
+		ui.syncRoomAnchorsFromGiftRecords(roomID)
+	}
+
+	return inserted, nil
+}
+
+func (ui *FyneUI) syncRoomAnchorsFromGiftRecords(roomID string) {
+	if ui.db == nil || strings.TrimSpace(roomID) == "" {
+		return
+	}
+
+	rows, err := ui.db.Query(`
+		SELECT DISTINCT anchor_id, anchor_name
+		FROM gift_records
+		WHERE room_id = ? AND TRIM(COALESCE(anchor_id, '')) <> ''
+	`, roomID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var anchorID, anchorName sql.NullString
+		if err := rows.Scan(&anchorID, &anchorName); err != nil {
+			continue
+		}
+		id := strings.TrimSpace(anchorID.String)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(anchorName.String)
+		ui.ensureGlobalAnchor(id, name)
+		ui.ensureRoomAnchorRecord(roomID, id, name)
+	}
 }
 
 func (ui *FyneUI) loadRoomAnchorRows(roomID string) [][]string {
