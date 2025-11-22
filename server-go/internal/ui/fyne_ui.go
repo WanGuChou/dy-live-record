@@ -253,11 +253,11 @@ func (ui *FyneUI) Show() {
 // createMainContent 创建主界面内容
 func (ui *FyneUI) createMainContent() fyne.CanvasObject {
 	ui.tabContainer = container.NewAppTabs(
-		container.NewTabItem("数据概览", ui.createOverviewTab()),
-		container.NewTabItem("主播管理", ui.createGlobalAnchorTab()),
-		container.NewTabItem("礼物管理", ui.createGiftManagementTab()),
 		container.NewTabItem("房间管理", ui.createRoomManagementTab()),
+		container.NewTabItem("礼物管理", ui.createGiftManagementTab()),
+		container.NewTabItem("主播管理", ui.createGlobalAnchorTab()),
 		container.NewTabItem("设置", ui.createSettingsTab()),
+		container.NewTabItem("数据概览", ui.createOverviewTab()),
 	)
 	ui.tabContainer.SetTabLocation(container.TabLocationTop)
 	return ui.tabContainer
@@ -2502,9 +2502,9 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 	ui.initRoomSegmentTable(roomTab)
 
 	roomTab.SubTabs = container.NewAppTabs(
-		container.NewTabItem("消息记录", messagesTab),
 		container.NewTabItem("礼物记录", container.NewScroll(roomTab.GiftTable)),
 		container.NewTabItem("主播管理", anchorContent),
+		container.NewTabItem("消息记录", messagesTab),
 		container.NewTabItem("分段记分", container.NewScroll(roomTab.SegmentTable)),
 	)
 
