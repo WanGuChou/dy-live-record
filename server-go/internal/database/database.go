@@ -16,10 +16,11 @@ type DB struct {
 
 // Init 初始化数据库
 func Init(dbPath string) (*DB, error) {
-	conn, err := sql.Open("sqlite3", dbPath)
+	conn, err := sql.Open("sqlite3", buildSQLiteDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
 	}
+	conn.SetMaxOpenConns(1)
 
 	// 测试连接
 	if err := conn.Ping(); err != nil {
@@ -56,6 +57,7 @@ func (db *DB) initSchema() error {
 		live_room_id TEXT,
 		room_title TEXT,
 		anchor_name TEXT,
+		ws_url TEXT,
 		first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
@@ -135,7 +137,7 @@ func (db *DB) initSchema() error {
 	if err := ensureGiftTable(db.conn); err != nil {
 		return err
 	}
-	if err := ensureLiveRoomIDColumn(db.conn); err != nil {
+	if err := ensureRoomsExtraColumns(db.conn); err != nil {
 		return err
 	}
 	if err := ensureGiftRecordsColumns(db.conn); err != nil {
@@ -278,8 +280,22 @@ func ensureGiftTable(conn *sql.DB) error {
 	return nil
 }
 
-func ensureLiveRoomIDColumn(conn *sql.DB) error {
-	return addColumnIfMissing(conn, "rooms", "live_room_id", "TEXT")
+func ensureRoomsExtraColumns(conn *sql.DB) error {
+	if err := addColumnIfMissing(conn, "rooms", "live_room_id", "TEXT"); err != nil {
+		return err
+	}
+	return addColumnIfMissing(conn, "rooms", "ws_url", "TEXT")
+}
+
+func buildSQLiteDSN(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return path
+	}
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	return fmt.Sprintf("%s%s_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on", path, separator)
 }
 
 func ensureGiftRecordsColumns(conn *sql.DB) error {
@@ -287,12 +303,12 @@ func ensureGiftRecordsColumns(conn *sql.DB) error {
 	if err := addColumnIfMissing(conn, "gift_records", "msg_id", "TEXT"); err != nil {
 		return err
 	}
-	
+
 	// 添加 anchor_name 列
 	if err := addColumnIfMissing(conn, "gift_records", "anchor_name", "TEXT"); err != nil {
 		return err
 	}
-	
+
 	// 检查是否存在 timestamp 列，如果存在但没有 create_time 列，则需要迁移数据
 	hasTimestamp, err := columnExists(conn, "gift_records", "timestamp")
 	if err != nil {
@@ -302,7 +318,7 @@ func ensureGiftRecordsColumns(conn *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 如果 timestamp 存在但 create_time 不存在，迁移数据
 	if hasTimestamp && !hasCreateTime {
 		// 添加 create_time 列
@@ -314,7 +330,7 @@ func ensureGiftRecordsColumns(conn *sql.DB) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 

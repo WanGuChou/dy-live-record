@@ -68,6 +68,7 @@ SELECT
     live_room_id,
     room_title,
     anchor_name,
+    ws_url,
     first_seen_at,
     last_seen_at
 FROM rooms

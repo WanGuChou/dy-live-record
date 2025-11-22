@@ -235,16 +235,20 @@ func (dl *DouyinLive) Start() {
 func (dl *DouyinLive) startWebSocket() error {
 	dialer := websocket.DefaultDialer
 	dialer.HandshakeTimeout = websocketConnectTimeout
-	url, err := dl.makeURL()
-	if err != nil {
-		return fmt.Errorf("构建WebSocket URL失败: %w", err)
+	url := dl.WSSURL()
+	if strings.TrimSpace(url) == "" {
+		var err error
+		url, err = dl.makeURL()
+		if err != nil {
+			return fmt.Errorf("构建WebSocket URL失败: %w", err)
+		}
 	}
 	conn, resp, err := dialer.Dial(url, dl.headers)
 	if err != nil {
 		return fmt.Errorf("连接失败 (状态码: %d): %w", resp.StatusCode, err)
 	}
 	dl.logger.Printf("直播间连接成功(状态码):[%d] 直播间名称:[%s]\n", resp.StatusCode, dl.LiveName)
-	
+
 	// 插入或更新 rooms 表记录
 	if dl.db != nil {
 		if err := dl.ensureRoomRecord(); err != nil {
@@ -253,7 +257,7 @@ func (dl *DouyinLive) startWebSocket() error {
 			dl.logger.Printf("✅ 房间记录已更新 (房间 %s, 名称: %s)\n", dl.roomID, dl.LiveName)
 		}
 	}
-	
+
 	dl.conn = conn
 	return nil
 }
@@ -271,7 +275,7 @@ func (dl *DouyinLive) makeURL() (string, error) {
 		utils.NewOrderedMap(dl.roomID, dl.pushID),
 	))
 
-	return fmt.Sprintf(wssURLTemplate,
+	url := fmt.Sprintf(wssURLTemplate,
 		parsedBrowser,
 		dl.roomID,
 		dl.pushID,
@@ -281,7 +285,11 @@ func (dl *DouyinLive) makeURL() (string, error) {
 		dl.pushID,
 		dl.roomID,
 		signature,
-	), nil
+	)
+	dl.mu.Lock()
+	dl.wssURL = url
+	dl.mu.Unlock()
+	return url, nil
 }
 
 // processMessages 处理消息
@@ -574,32 +582,59 @@ func (dl *DouyinLive) ensureRoomRecord() error {
 		return nil
 	}
 
-	// 检查是否已存在
-	var count int
-	err := dl.db.QueryRow(`SELECT COUNT(*) FROM rooms WHERE room_id = ?`, dl.roomID).Scan(&count)
-	if err != nil {
-		return fmt.Errorf("查询房间记录失败: %w", err)
-	}
-
-	if count > 0 {
-		// 已存在，更新 room_title, anchor_name 和 last_seen_at
-		_, err := dl.db.Exec(`
-			UPDATE rooms 
-			SET room_title = ?, last_seen_at = CURRENT_TIMESTAMP 
-			WHERE room_id = ?
-		`, dl.LiveName, dl.roomID)
-		return err
-	}
-
-	// 不存在，插入新记录
-	_, err = dl.db.Exec(`
-		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
-		VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, dl.roomID, dl.LiveName)
+	_, err := dl.db.Exec(`
+		INSERT INTO rooms (room_id, live_room_id, room_title, ws_url, anchor_name, first_seen_at, last_seen_at)
+		VALUES (?, ?, ?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(room_id) DO UPDATE SET
+			room_title=excluded.room_title,
+			live_room_id=excluded.live_room_id,
+			ws_url=COALESCE(NULLIF(excluded.ws_url, ''), rooms.ws_url),
+			last_seen_at=CURRENT_TIMESTAMP
+	`, dl.roomID, dl.liveID, dl.LiveName, dl.WSSURL())
 
 	if err != nil {
 		return fmt.Errorf("插入房间记录失败: %w", err)
 	}
 
 	return nil
+}
+
+// WSSURL returns the cached websocket url if available.
+func (dl *DouyinLive) WSSURL() string {
+	dl.mu.RLock()
+	defer dl.mu.RUnlock()
+	return dl.wssURL
+}
+
+// RoomID returns the resolved Douyin room_id (numeric).
+func (dl *DouyinLive) RoomID() string {
+	dl.mu.RLock()
+	defer dl.mu.RUnlock()
+	return dl.roomID
+}
+
+// LiveID returns the original live_room_id entered by the user.
+func (dl *DouyinLive) LiveID() string {
+	dl.mu.RLock()
+	defer dl.mu.RUnlock()
+	return dl.liveID
+}
+
+// LiveTitle returns the resolved live room title/nickname.
+func (dl *DouyinLive) LiveTitle() string {
+	dl.mu.RLock()
+	defer dl.mu.RUnlock()
+	return dl.LiveName
+}
+
+// ConnectionInfo ensures the websocket url has been generated and returns the resolved metadata.
+func (dl *DouyinLive) ConnectionInfo() (roomID, liveName, wsURL string, err error) {
+	if strings.TrimSpace(dl.RoomID()) != "" && strings.TrimSpace(dl.WSSURL()) != "" {
+		return dl.RoomID(), dl.LiveTitle(), dl.WSSURL(), nil
+	}
+	url, err := dl.makeURL()
+	if err != nil {
+		return "", "", "", err
+	}
+	return dl.RoomID(), dl.LiveTitle(), url, nil
 }
