@@ -796,31 +796,31 @@ func (ui *FyneUI) createRoomManagementTab() fyne.CanvasObject {
 
 	// 手动添加房间区域
 	manualRoomEntry := widget.NewEntry()
-	manualRoomEntry.SetPlaceHolder("输入抖音房间号 (短号或 room_id)")
+	manualRoomEntry.SetPlaceHolder("输入抖音 live_room_id (短号)")
 
 	addRoomBtn := widget.NewButton("手动添加房间", func() {
-		roomID := strings.TrimSpace(manualRoomEntry.Text)
-		if roomID == "" {
+		liveRoomID := strings.TrimSpace(manualRoomEntry.Text)
+		if liveRoomID == "" {
 			statusLabel.SetText("❌ 房间号不能为空")
 			return
 		}
 
 		manualRoomEntry.SetText("")
-		statusLabel.SetText(fmt.Sprintf("⏳ 正在连接房间 %s...", roomID))
+		statusLabel.SetText(fmt.Sprintf("⏳ 正在解析 live_room_id %s...", liveRoomID))
 
 		go func(id string) {
-			if err := ui.startManualRoom(id); err != nil {
+			if displayName, err := ui.startManualRoom(id); err != nil {
 				log.Printf("❌ 启动房间 %s 失败: %v", id, err)
 				ui.runOnMain(func() {
 					statusLabel.SetText(fmt.Sprintf("❌ 房间 %s 连接失败: %v", id, err))
 				})
 			} else {
 				ui.runOnMain(func() {
-					statusLabel.SetText(fmt.Sprintf("✅ 正在监听房间 %s", id))
-					ui.updateOverviewStatus(fmt.Sprintf("状态: 正在监听房间 %s", id))
+					statusLabel.SetText(fmt.Sprintf("✅ 正在监听 %s", displayName))
+					ui.updateOverviewStatus(fmt.Sprintf("状态: 正在监听 %s", displayName))
 				})
 			}
-		}(roomID)
+		}(liveRoomID)
 	})
 	addRoomBtn.Importance = widget.HighImportance
 
@@ -2038,6 +2038,18 @@ func (ui *FyneUI) loadRoomSummaries(roomID, anchor string) [][]string {
 	return rows
 }
 
+func (ui *FyneUI) lookupRoomTitle(roomID string) string {
+	if ui.db == nil || strings.TrimSpace(roomID) == "" {
+		return fmt.Sprintf("房间 %s", roomID)
+	}
+	var title sql.NullString
+	err := ui.db.QueryRow(`SELECT room_title FROM rooms WHERE room_id = ?`, roomID).Scan(&title)
+	if err == nil && title.Valid && strings.TrimSpace(title.String) != "" {
+		return strings.TrimSpace(title.String)
+	}
+	return fmt.Sprintf("房间 %s", roomID)
+}
+
 func (ui *FyneUI) openHistoricalRoomTab(roomID string) {
 	if roomID == "" {
 		return
@@ -2408,7 +2420,7 @@ func (ui *FyneUI) closeRoom(roomID string) {
 		ui.tabContainer.Remove(roomTab.Tab)
 	}
 	delete(ui.roomTabs, roomID)
-	ui.updateOverviewStatus(fmt.Sprintf("状态: 房间 %s 已关闭", roomID))
+	ui.updateOverviewStatus(fmt.Sprintf("状态: %s 已关闭", roomTab.RoomName))
 }
 
 func (ui *FyneUI) updateRoomStats(roomTab *RoomTab) {
@@ -2427,7 +2439,7 @@ func (ui *FyneUI) updateRoomStats(roomTab *RoomTab) {
 	if total > displayed {
 		extra = fmt.Sprintf(" (展示 %d 条)", displayed)
 	}
-	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 消息: %d 条%s", roomTab.RoomID, total, extra))
+	roomTab.StatsLabel.SetText(fmt.Sprintf("房间: %s | 消息: %d 条%s", roomTab.RoomName, total, extra))
 }
 
 // AddOrUpdateRoom 添加或更新房间Tab
@@ -2436,18 +2448,20 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 		return
 	}
 
+	displayName := ui.lookupRoomTitle(roomID)
+
 	roomTab := &RoomTab{
 		RoomID:        roomID,
-		RoomName:      roomID,
+		RoomName:      displayName,
 		MessagePairs:  make([]*MessagePair, 0, 200),
 		FilteredPairs: make([]*MessagePair, 0, 200),
 	}
 
 	if ui.currentRoomLabel != nil {
-		ui.currentRoomLabel.SetText(fmt.Sprintf("当前监控房间: %s", roomID))
+		ui.currentRoomLabel.SetText(fmt.Sprintf("当前监控房间: %s", displayName))
 	}
 
-	roomTab.StatsLabel = widget.NewLabel(fmt.Sprintf("房间: %s | 消息: 0 条", roomID))
+	roomTab.StatsLabel = widget.NewLabel(fmt.Sprintf("房间: %s | 消息: 0 条", roomTab.RoomName))
 	roomTab.TotalMessages = ui.fetchRoomMessageCount(roomID)
 	ui.updateRoomStats(roomTab)
 
@@ -2480,14 +2494,9 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 
 	roomTab.FilterSelect.SetSelected("全部")
 
-	giftOnlyBtn := widget.NewButton("礼物记录视图", func() {
-		ui.showGiftRecordWindow(roomID)
-	})
-
 	messagesHeader := container.NewHBox(
 		widget.NewLabel("筛选:"),
 		roomTab.FilterSelect,
-		giftOnlyBtn,
 		layout.NewSpacer(),
 	)
 
@@ -2524,7 +2533,7 @@ func (ui *FyneUI) AddOrUpdateRoom(roomID string) {
 		roomTab.SubTabs,
 	)
 
-	roomTab.Tab = container.NewTabItem(fmt.Sprintf("房间 %s", roomID), content)
+	roomTab.Tab = container.NewTabItem(roomTab.RoomName, content)
 
 	ui.roomTabs[roomID] = roomTab
 	ui.tabContainer.Append(roomTab.Tab)
@@ -3343,142 +3352,6 @@ func (ui *FyneUI) showMessageDetail(roomTab *RoomTab, id widget.ListItemID) {
 
 	detailWin.SetContent(content)
 	detailWin.Show()
-}
-
-func (ui *FyneUI) showGiftRecordWindow(roomID string) {
-	rows := ui.loadRoomGiftRows(roomID)
-	if len(rows) <= 1 {
-		dialog.ShowInformation("提示", "暂无礼物记录", ui.mainWin)
-		return
-	}
-
-	statusLabel := widget.NewLabel(fmt.Sprintf("共 %d 条礼物记录", len(rows)-1))
-
-	table := widget.NewTable(
-		func() (int, int) { return len(rows), len(rows[0]) },
-		func() fyne.CanvasObject { return widget.NewLabel("") },
-		func(id widget.TableCellID, cell fyne.CanvasObject) {
-			if id.Row < len(rows) && id.Col < len(rows[id.Row]) {
-				cell.(*widget.Label).SetText(rows[id.Row][id.Col])
-			}
-		},
-	)
-
-	// 设置右键菜单
-	table.OnSelected = func(id widget.TableCellID) {
-		if id.Row <= 0 || id.Row >= len(rows) {
-			return
-		}
-
-		row := rows[id.Row]
-		if len(row) < 5 {
-			return
-		}
-
-		giftName := row[1]
-		currentAnchor := row[4]
-
-		// 如果没有主播，显示绑定选项
-		if strings.TrimSpace(currentAnchor) == "" {
-			ui.showBindAnchorMenu(roomID, giftName, func() {
-				// 刷新礼物记录
-				newRows := ui.loadRoomGiftRows(roomID)
-				rows = newRows
-				table.Refresh()
-				statusLabel.SetText(fmt.Sprintf("共 %d 条礼物记录 (已刷新)", len(rows)-1))
-			})
-		}
-	}
-
-	win := ui.app.NewWindow(fmt.Sprintf("房间 %s 礼物记录", roomID))
-	content := container.NewBorder(
-		statusLabel,
-		nil, nil, nil,
-		container.NewScroll(table),
-	)
-	win.SetContent(content)
-	win.Resize(fyne.NewSize(800, 500))
-	win.Show()
-}
-
-// showBindAnchorMenu 显示绑定主播的菜单
-func (ui *FyneUI) showBindAnchorMenu(roomID, giftName string, onBound func()) {
-	if ui.mainWin == nil || ui.db == nil {
-		return
-	}
-
-	// 查询该房间的主播列表
-	anchors, err := ui.loadRoomAnchors(roomID)
-	if err != nil || len(anchors) == 0 {
-		dialog.ShowInformation("提示", "该房间暂无主播，请先在主播管理中添加主播", ui.mainWin)
-		return
-	}
-
-	anchorOptions := make([]string, 0, len(anchors))
-	anchorMap := make(map[string]string)
-	for _, anchor := range anchors {
-		option := fmt.Sprintf("%s | %s", anchor.ID, anchor.Name)
-		anchorOptions = append(anchorOptions, option)
-		anchorMap[option] = anchor.ID
-	}
-
-	anchorSelect := widget.NewSelect(anchorOptions, nil)
-	anchorSelect.PlaceHolder = "选择主播"
-
-	statusLabel := widget.NewLabel("")
-
-	bindDialog := dialog.NewCustomConfirm(
-		"绑定礼物到主播",
-		"绑定",
-		"取消",
-		container.NewVBox(
-			widget.NewLabel(fmt.Sprintf("礼物: %s", giftName)),
-			widget.NewLabel("选择接收主播:"),
-			anchorSelect,
-			statusLabel,
-		),
-		func(ok bool) {
-			if !ok || anchorSelect.Selected == "" {
-				return
-			}
-
-			anchorID := anchorMap[anchorSelect.Selected]
-			if anchorID == "" {
-				return
-			}
-
-			// 绑定礼物到主播
-			_, err := ui.db.Exec(`
-				INSERT INTO room_gift_bindings (room_id, gift_name, anchor_id)
-				VALUES (?, ?, ?)
-				ON CONFLICT(room_id, gift_name) DO UPDATE SET anchor_id=excluded.anchor_id
-			`, roomID, giftName, anchorID)
-
-			if err != nil {
-				statusLabel.SetText(fmt.Sprintf("绑定失败: %v", err))
-				return
-			}
-
-			// 更新现有的礼物记录
-			_, err = ui.db.Exec(`
-				UPDATE gift_records
-				SET anchor_id = ?, anchor_name = (SELECT anchor_name FROM anchors WHERE anchor_id = ?)
-				WHERE room_id = ? AND gift_name = ? AND (anchor_id IS NULL OR anchor_id = '')
-			`, anchorID, anchorID, roomID, giftName)
-
-			if err != nil {
-				log.Printf("⚠️ 更新礼物记录失败: %v", err)
-			}
-
-			if onBound != nil {
-				onBound()
-			}
-		},
-		ui.mainWin,
-	)
-
-	bindDialog.Resize(fyne.NewSize(400, 200))
-	bindDialog.Show()
 }
 
 type RoomAnchor struct {

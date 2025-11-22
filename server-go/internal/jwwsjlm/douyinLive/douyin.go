@@ -248,7 +248,7 @@ func (dl *DouyinLive) startWebSocket() error {
 		return fmt.Errorf("连接失败 (状态码: %d): %w", resp.StatusCode, err)
 	}
 	dl.logger.Printf("直播间连接成功(状态码):[%d] 直播间名称:[%s]\n", resp.StatusCode, dl.LiveName)
-	
+
 	// 插入或更新 rooms 表记录
 	if dl.db != nil {
 		if err := dl.ensureRoomRecord(); err != nil {
@@ -257,7 +257,7 @@ func (dl *DouyinLive) startWebSocket() error {
 			dl.logger.Printf("✅ 房间记录已更新 (房间 %s, 名称: %s)\n", dl.roomID, dl.LiveName)
 		}
 	}
-	
+
 	dl.conn = conn
 	return nil
 }
@@ -582,28 +582,15 @@ func (dl *DouyinLive) ensureRoomRecord() error {
 		return nil
 	}
 
-	// 检查是否已存在
-	var count int
-	err := dl.db.QueryRow(`SELECT COUNT(*) FROM rooms WHERE room_id = ?`, dl.roomID).Scan(&count)
-	if err != nil {
-		return fmt.Errorf("查询房间记录失败: %w", err)
-	}
-
-	if count > 0 {
-		// 已存在，更新 room_title, anchor_name 和 last_seen_at
-		_, err := dl.db.Exec(`
-			UPDATE rooms 
-			SET room_title = ?, last_seen_at = CURRENT_TIMESTAMP 
-			WHERE room_id = ?
-		`, dl.LiveName, dl.roomID)
-		return err
-	}
-
-	// 不存在，插入新记录
-	_, err = dl.db.Exec(`
-		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
-		VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, dl.roomID, dl.LiveName)
+	_, err := dl.db.Exec(`
+		INSERT INTO rooms (room_id, live_room_id, room_title, ws_url, anchor_name, first_seen_at, last_seen_at)
+		VALUES (?, ?, ?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(room_id) DO UPDATE SET
+			room_title=excluded.room_title,
+			live_room_id=excluded.live_room_id,
+			ws_url=COALESCE(NULLIF(excluded.ws_url, ''), rooms.ws_url),
+			last_seen_at=CURRENT_TIMESTAMP
+	`, dl.roomID, dl.liveID, dl.LiveName, dl.WSSURL())
 
 	if err != nil {
 		return fmt.Errorf("插入房间记录失败: %w", err)

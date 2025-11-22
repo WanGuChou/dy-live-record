@@ -179,7 +179,7 @@ func (s *WebSocketServer) handleDouyinMessage(data map[string]interface{}) {
 	log.Printf("📍 提取到房间号: %s", roomID)
 
 	// 确保 rooms 表中有记录
-	if err := s.ensureRoomRecord(roomID); err != nil {
+	if err := s.ensureRoomRecord(roomID, url); err != nil {
 		log.Printf("⚠️  确保房间记录失败 (房间 %s): %v", roomID, err)
 	}
 
@@ -279,7 +279,7 @@ func (s *WebSocketServer) getOrCreateRoom(roomID string) *RoomManager {
 		}
 
 		// 确保 rooms 表中有记录
-		if err := s.ensureRoomRecord(roomID); err != nil {
+		if err := s.ensureRoomRecord(roomID, ""); err != nil {
 			log.Printf("⚠️  确保房间记录失败: %v", err)
 		}
 
@@ -325,9 +325,6 @@ func (s *WebSocketServer) PersistRoomMessage(roomID string, parsed *parser.Parse
 		Display:     parsed.Display,
 		UserID:      toString(detail["userId"]),
 		UserName:    toString(detail["user"]),
-		GiftName:    toString(detail["giftName"]),
-		GiftCount:   toInt(detail["groupCount"]),
-		GiftValue:   toInt(detail["diamondCount"]),
 		AnchorID:    toString(detail["anchorId"]),
 		RawPayload:  parsed.RawPayload,
 		ParsedJSON:  parsed.RawJSON,
@@ -448,6 +445,13 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, parsed *parser.ParsedPro
 	log.Printf("✅ [房间 %s] 礼物记录已保存到 gift_records 表，recordID: %d, msgID: %s", roomID, recordID, msgID)
 
 	if anchorID != "" {
+		if anchorName == "" {
+			anchorName = s.lookupAnchorName(anchorID)
+		}
+
+		s.ensureGlobalAnchor(anchorID, anchorName)
+		s.ensureRoomAnchorRecord(roomID, anchorID, anchorName)
+
 		// 记录主播业绩
 		if err := s.giftAllocator.RecordAnchorPerformance(anchorID, giftName, diamondCount); err != nil {
 			log.Printf("❌ [房间 %s] 记录主播业绩失败: %v", roomID, err)
@@ -457,8 +461,59 @@ func (s *WebSocketServer) saveGiftRecord(roomID string, parsed *parser.ParsedPro
 	}
 }
 
+func (s *WebSocketServer) ensureRoomAnchorRecord(roomID, anchorID, anchorName string) {
+	if s.db == nil || anchorID == "" {
+		return
+	}
+	if strings.TrimSpace(anchorName) == "" {
+		anchorName = s.lookupAnchorName(anchorID)
+	}
+	_, err := s.db.GetConnection().Exec(`
+		INSERT INTO room_anchors (room_id, anchor_id, anchor_name, gift_count, score)
+		VALUES (?, ?, ?, 0, 0)
+		ON CONFLICT(room_id, anchor_id) DO UPDATE SET anchor_name=excluded.anchor_name
+	`, roomID, anchorID, anchorName)
+	if err != nil {
+		log.Printf("⚠️  [房间 %s] 同步 room_anchors 失败: %v", roomID, err)
+	}
+}
+
+func (s *WebSocketServer) ensureGlobalAnchor(anchorID, anchorName string) {
+	if s.db == nil || anchorID == "" {
+		return
+	}
+	if strings.TrimSpace(anchorName) == "" {
+		anchorName = anchorID
+	}
+	_, err := s.db.GetConnection().Exec(`
+		INSERT INTO anchors (anchor_id, anchor_name, bound_gifts, created_at, updated_at)
+		VALUES (?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(anchor_id) DO UPDATE SET 
+			anchor_name=CASE 
+				WHEN excluded.anchor_name = '' THEN anchors.anchor_name
+				ELSE excluded.anchor_name
+			END,
+			updated_at=CURRENT_TIMESTAMP
+	`, anchorID, anchorName)
+	if err != nil {
+		log.Printf("⚠️  同步 anchors 失败: %v", err)
+	}
+}
+
+func (s *WebSocketServer) lookupAnchorName(anchorID string) string {
+	if s.db == nil || anchorID == "" {
+		return ""
+	}
+	var name string
+	err := s.db.GetConnection().QueryRow(`SELECT anchor_name FROM anchors WHERE anchor_id = ?`, anchorID).Scan(&name)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(name)
+}
+
 // ensureRoomRecord 确保 rooms 表中有房间记录
-func (s *WebSocketServer) ensureRoomRecord(roomID string) error {
+func (s *WebSocketServer) ensureRoomRecord(roomID, wsURL string) error {
 	if s.db == nil || roomID == "" {
 		return nil
 	}
@@ -471,10 +526,16 @@ func (s *WebSocketServer) ensureRoomRecord(roomID string) error {
 	}
 
 	if count > 0 {
-		// 已存在，更新 last_seen_at
-		_, err := s.db.GetConnection().Exec(`
-			UPDATE rooms SET last_seen_at = CURRENT_TIMESTAMP WHERE room_id = ?
-		`, roomID)
+		// 已存在，更新 last_seen_at 及必要字段
+		setClauses := []string{"last_seen_at = CURRENT_TIMESTAMP"}
+		args := make([]interface{}, 0, 2)
+		if strings.TrimSpace(wsURL) != "" {
+			setClauses = append(setClauses, "ws_url = ?")
+			args = append(args, wsURL)
+		}
+		args = append(args, roomID)
+		query := fmt.Sprintf("UPDATE rooms SET %s WHERE room_id = ?", strings.Join(setClauses, ", "))
+		_, err := s.db.GetConnection().Exec(query, args...)
 		if err != nil {
 			log.Printf("⚠️  [房间 %s] 更新 last_seen_at 失败: %v", roomID, err)
 		} else {
@@ -485,9 +546,9 @@ func (s *WebSocketServer) ensureRoomRecord(roomID string) error {
 
 	// 不存在，插入新记录
 	_, err = s.db.GetConnection().Exec(`
-		INSERT INTO rooms (room_id, room_title, anchor_name, first_seen_at, last_seen_at)
-		VALUES (?, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, roomID)
+		INSERT INTO rooms (room_id, room_title, anchor_name, ws_url, first_seen_at, last_seen_at)
+		VALUES (?, '', '', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, roomID, wsURL)
 
 	if err != nil {
 		return fmt.Errorf("插入房间记录失败: %w", err)

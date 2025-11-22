@@ -18,9 +18,6 @@ type RoomMessageRecord struct {
 	Display     string
 	UserID      string
 	UserName    string
-	GiftName    string
-	GiftCount   int
-	GiftValue   int
 	AnchorID    string
 	RawPayload  []byte
 	ParsedJSON  string
@@ -42,9 +39,6 @@ func (db *DB) EnsureRoomTables(roomID string) error {
 		display TEXT,
 		user_id TEXT,
 		user_name TEXT,
-		gift_name TEXT,
-		gift_count INTEGER DEFAULT 0,
-		gift_value INTEGER DEFAULT 0,
 		anchor_id TEXT,
 		raw_payload BLOB,
 		parsed_json TEXT,
@@ -68,14 +62,14 @@ func (db *DB) EnsureRoomTables(roomID string) error {
 // ensureRoomMessageColumns 确保房间消息表包含所有需要的列
 func (db *DB) ensureRoomMessageColumns(roomID string) error {
 	tableName := db.roomMessageTable(roomID)
-	
+
 	// 检查表是否存在
 	var count int
 	err := db.conn.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, tableName).Scan(&count)
 	if err != nil || count == 0 {
 		return nil // 表不存在，无需迁移
 	}
-	
+
 	// 添加缺失的列
 	if err := addColumnIfMissing(db.conn, tableName, "msg_id", "TEXT"); err != nil {
 		return err
@@ -83,7 +77,7 @@ func (db *DB) ensureRoomMessageColumns(roomID string) error {
 	if err := addColumnIfMissing(db.conn, tableName, "room_id", "TEXT"); err != nil {
 		return err
 	}
-	
+
 	// 检查是否需要迁移 timestamp 到 create_time
 	hasTimestamp, err := columnExists(db.conn, tableName, "timestamp")
 	if err != nil {
@@ -93,7 +87,7 @@ func (db *DB) ensureRoomMessageColumns(roomID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if hasTimestamp && !hasCreateTime {
 		if err := addColumnIfMissing(db.conn, tableName, "create_time", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); err != nil {
 			return err
@@ -104,7 +98,7 @@ func (db *DB) ensureRoomMessageColumns(roomID string) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -123,9 +117,8 @@ func (db *DB) InsertRoomMessage(record *RoomMessageRecord) error {
 	_, err := db.conn.Exec(fmt.Sprintf(`
 		INSERT INTO %s (
 			msg_id, room_id, create_time, method, message_type, display,
-			user_id, user_name, gift_name, gift_count, gift_value,
-			anchor_id, raw_payload, parsed_json, source
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			user_id, user_name, anchor_id, raw_payload, parsed_json, source
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, table),
 		record.MsgID,
 		record.RoomID,
@@ -135,9 +128,6 @@ func (db *DB) InsertRoomMessage(record *RoomMessageRecord) error {
 		record.Display,
 		record.UserID,
 		record.UserName,
-		record.GiftName,
-		record.GiftCount,
-		record.GiftValue,
 		record.AnchorID,
 		record.RawPayload,
 		record.ParsedJSON,
